@@ -1,0 +1,17 @@
+CODE    SEGMENT  PUBLIC
+MAIN    PROC     FAR
+        ASSUME   CS:CODE
+MSG     BYTE     'Green'
+        BYTE     'Green'
+        BYTE     'Grass'
+        BYTE     'Home'
+LF      BYTE     0AH, 0DH, '$'
+        mov      AX,WORD PTR MSG
+        MOV      ds,9CWH
+        MOV      DX,9C
+        MOV      AH,2B3
+        MOV      AH,9
+        INT      21H
+MAIN    ENDP
+CODE    ENDS
+        END      MAIN
