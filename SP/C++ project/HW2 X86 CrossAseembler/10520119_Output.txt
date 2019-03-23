@@ -1,0 +1,25 @@
+0000		CODE   	       SEGMENT
+0000		Mycode         PROC       NEAR
+0000		               ASSUME    CS:CODE
+0000	0 	               ORG    	0
+0000	47 72 65 65 6e 20 	Msg            BYTE   	'Green '
+0006	47 72 65 65 6e 20 		       BYTE   	'Green '
+000c	47 72 61 73 73 20 		       BYTE   	'Grass '
+0012	48 6f 6d 65 	               BYTE   	'Home'
+0016	0A  0D  24 	LF             BYTE   	0AH, 0DH, '$'
+0019	8b 32 0000 R     MOV    	AX,WORD PTR Msg
+001d	8b c3 	               MOV    	DS,AX
+001f	8b 32 0000 R     	DX,WORD PTR Msg
+0023	e8 0004          CALL   	DispMsg
+0026	4C  	               MOV    	AH,4CH
+0027	cd 21  	               INT    	21H
+002a		Mycode         ENDP
+002a		DispMsg        PROC   	NEAR
+002a	09  	               MOV    	AH,09H
+002b	cd 21  	               INT    	21H
+002e	c3 	               RET
+002f	8b d8 	              MOV 	BX,AX
+0031		DispMsg        ENDP
+0031		CODE           ENDS
+0031		               END    	Mycode
+

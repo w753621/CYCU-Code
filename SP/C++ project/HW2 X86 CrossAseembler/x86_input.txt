@@ -18,6 +18,7 @@ DispMsg        PROC   	NEAR
                MOV    	AH,09H
                INT    	21H
                RET
+              MOV 	BX,AX
 DispMsg        ENDP
 CODE           ENDS
                END    	Mycode

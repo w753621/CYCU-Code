@@ -6,6 +6,7 @@
 
            AAD             D5         0001
            AAM             D4         0001
+           
            AAA             37         0002
            AAS             3F         0002
            CBW             98         0002
@@ -112,7 +113,9 @@
            SHR             28         0016
            XCHG            86         0017
            TEST            F6         0018
+
            MOV             C6         0019
+
            ADC             10         0020
            ADD             00         0020
            AND             20         0020
@@ -121,6 +124,8 @@
            SBB             18         0020
            SUB             28         0020
            XOR             30         0020
+
+           
            DW              FF         0021
            DB              FF         0022
            ORG             FF         0023
