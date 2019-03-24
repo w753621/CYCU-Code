@@ -1006,7 +1006,7 @@ TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit
         
   int i = 0;
   aParser.TranslateToken();
-  // aParser.PrintVector();
+  aParser.PrintVector();
   aTreeRoot = aParser.BuildTree( aTreeRoot, i );
   return aTreeRoot;
 } // ReadSExp()
