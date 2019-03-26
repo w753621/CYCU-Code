@@ -668,6 +668,15 @@ class Parser {
     else  {
       while ( mAccurate_token_vector.size() > anumber ) {
         if ( mAccurate_token_vector[anumber].token_type == "LEFT-PAREN" ) {    // 先記錄該子或父的sexp當中有幾個空白先
+          int cur = mTranslated_token_vector.size() - 1;
+          if ( cur != -1 ) {
+            if ( mTranslated_token_vector[cur].token_type != "DOT" ) {
+              mTranslated_token_vector.push_back( token_Dot_data );
+              mTranslated_token_vector.push_back( token_LP_data );
+              rpfordot++;
+            } // if
+          } // if
+
           while ( mAccurate_token_vector[anumber].token_type == "LEFT-PAREN" ) {
             mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );
             anumber++;
@@ -677,13 +686,30 @@ class Parser {
             mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );    // 存(之後下一個sexp【不是(了】
             anumber++;
           } // if
+          else {
+            mTranslated_token_vector.push_back( token_LP_data );                       // 先建一個(
+            mTranslated_token_vector.push_back( token_QUOTE_data );
+            anumber++;
+            rpforlp.push( 1 ); 
+          } // else
       
         } // if
         else if ( mAccurate_token_vector[anumber].token_type == "QUOTE" ) {
+          int cur = mTranslated_token_vector.size() - 1;
+          if ( cur != -1 ) {
+            if ( mTranslated_token_vector[cur].token_type != "DOT" ) {
+              mTranslated_token_vector.push_back( token_Dot_data );
+              mTranslated_token_vector.push_back( token_LP_data );
+              rpfordot++;
+            } // if
+
+          } // if
+
           mTranslated_token_vector.push_back( token_LP_data );                       // 先建一個(
           mTranslated_token_vector.push_back( token_QUOTE_data );                     // 並把Quote丟入。
           rpforlp.push( 1 );                                         
-          anumber++;
+          anumber++;    
+
         } // else if
         else if ( mAccurate_token_vector[anumber].token_type == "RIGHT-PAREN" ) {
           
@@ -715,9 +741,11 @@ class Parser {
           } // if  
           else if ( mTranslated_token_vector[cur].token_type == "QUOTE" ) { 
             if ( mAccurate_token_vector.size() > anumber ) {
+              mTranslated_token_vector.push_back( token_Dot_data );
+              mTranslated_token_vector.push_back( token_LP_data );
+              rpfordot++;
               mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );
               mTranslated_token_vector.push_back( token_RP_data );
-              if ( rpforlp.size() > 0 ) rpforlp.pop();
               alreadypush = true;
             } // if
 
@@ -764,7 +792,7 @@ class Parser {
         
         if ( mTranslated_token_vector[i-2].token_type == "LEFT-PAREN" 
              || mTranslated_token_vector[i-2].token_type == "QUOTE" ) {
-          
+                 
           doingDot = true;
           mTranslated_token_vector.insert( mTranslated_token_vector.begin() + i, token_NIL_data );
           mTranslated_token_vector.insert( mTranslated_token_vector.begin() + i, token_Dot_data );
@@ -929,7 +957,7 @@ class Tree {
         printed = printed.assign( printed, 0, printed.size() - 2 );
         cout << printed << ")" << "\n";
       } // else if
-      else if ( ( IsAtom( aTreeRoot -> token_data ) ) || aTreeRoot -> token_data.token_type == "QUOTE" ) {
+      else if ( aTreeRoot -> left == NULL && aTreeRoot -> right == NULL ) {
 
         if ( firstsexp ) {
           firstsexp = false;
