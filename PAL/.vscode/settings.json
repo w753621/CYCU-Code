@@ -24,5 +24,6 @@
         "-std=c++17",
         "-Wall"
     ],
-    "clang.completion.enable": true
+    "clang.completion.enable": true,
+    "python.pythonPath": "C:\\Users\\LEX\\Anaconda3\\python.exe"
 }

@@ -8,7 +8,7 @@
 using namespace std;
 static int utestNum = -1;
 
-struct TokenData {                                            // token字串、token的類別。
+struct TokenData {  // token字串、token的類別。
   int token_line;
   int token_column;
   string token_name;
@@ -67,7 +67,7 @@ struct ConsListErrorInfo {
 }; // ConsListErrorInfo
 
 
-class Scanner {                                        // 只負責切出GetToken()，跟PeekToken()，並回傳該Token字串。
+class Scanner {         // 只負責切出GetToken()，跟PeekToken()，並回傳該Token字串。
   private:
   int mscan_line, mscan_column;
   void ASeparatorType( char sexpchar, TokenData & token_data ) {
@@ -940,7 +940,18 @@ class Parser {
 
 class Tree {
   private:
+    stack<int> mFunctionPosition;  // 計算參數時，Is_Start=true存入左邊的node position，等到Is_END成對可以計算時才pop出。
+    vector<TreeNode> mAllFunctionParameter; // 計算參數時，所有存入的function & parameter。
   public:
+    TreeNode * resultSExp;               // 一次處理一個SExp，一個SExp代表一個樹的結構。
+  Tree() {
+    resultSExp = new TreeNode;          
+    resultSExp -> left = NULL;
+    resultSExp -> right = NULL;   
+    resultSExp -> isStart = false;
+    resultSExp -> isEnd = false;
+  } // Tree()
+
   // 印成list-like formate
   void PrintSExp( TreeNode * aTreeRoot, string & printed, bool & firstsexp ) { 
     if ( aTreeRoot ) {    
@@ -1024,25 +1035,39 @@ class Tree {
     return false;
   } // IsAtom()
 
+  // 主要目的(一)存參數給Function給使用。
   TreeNode * EvaluateParameter( TreeNode * inputSExp, TreeNode * resultSExp, bool & printSExp ) {
+    if ( inputSExp ) {
+      if ( inputSExp -> isStart ) {
 
+      } // if
+      else if ( inputSExp -> isEnd ) {
+
+      } // else if
+      else if ( inputSExp -> left == NULL && inputSExp -> right == NULL ) {
+
+      }  // else if
+
+      EvaluateParameter( inputSExp -> left, resultSExp, printSExp );
+      EvaluateParameter( inputSExp -> right, resultSExp, printSExp );
+    } // if
 
     return resultSExp;
   } // EvaluateParameter()
 
-}; // Tree
-
-
-// catch Error跟進入運算，並返回運算完的reusltSExp給main()
-TreeNode * EvaluateSExp( TreeNode * inputSExp, TreeNode * resultSExp, Tree & aTree, bool & printSExp ) {
+  // catch Error跟進入運算，並返回運算完的reusltSExp給main()
+  TreeNode * EvaluateSExp( TreeNode * inputSExp, Tree & aTree, bool & printSExp ) {
   try {
-    resultSExp = aTree.EvaluateParameter( inputSExp, resultSExp, printSExp );
+    aTree.resultSExp = aTree.EvaluateParameter( inputSExp, resultSExp, printSExp );
   } // try
+  catch( ) {
 
+  } // catch
 
-
-  return resultSExp;
+  return aTree.resultSExp;
 } // EvaluateSExp()
+
+}; // Tree
 
 // Scanner與Parser互相溝通的function，等Paser處理完並無錯之後就開始建Tree。
 TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit  ) {  
@@ -1105,13 +1130,8 @@ int main() {
       // Scanner與Paser互相溝通的function，等Paser處理完並無錯之後就開始建Tree。 user讀到 (exit)，設定finished，結束這次測試檔。      
       if ( !finished ) {
         TreeNode * resultSExp;               // 一次處理一個SExp，一個SExp代表一個樹的結構。
-        resultSExp = new TreeNode;          
-        resultSExp -> left = NULL;
-        resultSExp -> right = NULL;   
-        resultSExp -> isStart = false;
-        resultSExp -> isEnd = false; 
         bool printSExp = true;
-        resultSExp = EvaluateSExp( inputSExp, resultSExp, aTree, printSExp );
+        resultSExp = EvaluateSExp( inputSExp, aTree, printSExp );
         bool firstsexp = true;
         string printed = "";
         if ( printSExp ) aTree.PrintSExp( inputSExp, printed, firstsexp );
