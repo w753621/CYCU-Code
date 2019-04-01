@@ -29,14 +29,27 @@ class Pp {
   } // Pp
 };
 
+void test() {
+  try {
+    string a = "fff";
+    throw a;
+  } // try
+  catch( string a ) {
+   cout << "enter";
+  } // catch
+
+} // test()
+
 int main() {
   fstream inputfile;
-  TokenData aTokenData; 
-  vector<TokenData> mTranslated_token_vector;
-  string printed = "";
-  if ( printed[2] == 'f' ) cout << "r";
-  int number = printed[2];
-  cout << number << "e";
+  try {
+    test();
+    cout << "ff1";
+  } //
+  catch( int i ) {
+
+  } // catch
+
 } // main()
 
 

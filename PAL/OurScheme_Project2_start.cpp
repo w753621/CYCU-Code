@@ -3,6 +3,7 @@
 # include <string>
 # include <vector>
 # include <stack>
+# include <queue>
 # include <iomanip>  // 控制輸出小數位數
 # include <iostream>
 using namespace std;
@@ -49,12 +50,19 @@ struct DefineTable {
   TreeNode * define_value;
 }; // DefineTable
 
+struct SaveFunctionParameter {
+  int function_Pos;   // Is_Start=true存入左邊的node position，等到Is_END成對可以計算時才pop出。
+  int quote_Num;      // bypass第一個quote用。
+  int startFun_Num;  // 紀錄該function的start數目，start=end 數目才知道該function的參數找到完。
+  queue<int> parameter_Pos; // 計算參數時所存的參數。
+}; // SaveFunctionParameter
+
 struct UnboundSymbolErrorInfo {
-  string symol_name;
+  TreeNode * symbol_name;
 }; // UnboundSymbolErrorInfo
 
 struct NonFunctionErrorInfo {
-  string nonfun_name;
+  TreeNode * nonfun_name;
 }; // NonFunctionErrorInfo 
 
 struct AgumentNumberErrorInfo {
@@ -66,6 +74,7 @@ struct ConsListErrorInfo {
   TreeNode * error_node;
 }; // ConsListErrorInfo
 
+vector<DefineTable*> gDefineTable;
 
 class Scanner {         // 只負責切出GetToken()，跟PeekToken()，並回傳該Token字串。
   private:
@@ -940,16 +949,204 @@ class Parser {
 
 class Tree {
   private:
-    stack<int> mFunctionPosition;  // 計算參數時，Is_Start=true存入左邊的node position，等到Is_END成對可以計算時才pop出。
-    vector<TreeNode> mAllFunctionParameter; // 計算參數時，所有存入的function & parameter。
+    vector<TreeNode*> mAllFunctionParameter;  // 計算參數時，所有存入的function & parameter。
+    stack<SaveFunctionParameter> mSave_Table; // 紀錄Function位置(Function_Pos)，Function計算參數何時結束(startFun_Num)
+                                              // 紀錄Parameter位置(Parameter_Pos)。
+    TreeNode * mResultSExp;   // 一次處理一個SExp，一個SExp代表一個樹的結構。
+    bool mOnlyQuote;          // 該sexp只有quote，計算多餘的第一個quote用。
+    bool mPrintSExp;          // 控制需不需要印出sexp用。
+    bool mOneEvaluate;
+  // KEY:遇到QUOTE就是一個List，不然下一個Is_Start左邊接的就是function。
+
+
+  
+  void EvaluateParameter( TreeNode * inputSExp, int & current_pos ) { 
+    if ( inputSExp ) {
+      mAllFunctionParameter.push_back( inputSExp );  
+      SaveFunctionParameter aSaveFunPara;
+      if ( mSave_Table.size() > 0 ) aSaveFunPara = mSave_Table.top();
+      bool pushfunpara = true;
+
+      if ( inputSExp -> isStart ) {
+        DealmStartFun_Number( "ADD", aSaveFunPara );
+        if ( inputSExp -> left -> token_data.token_name == "quote"//整個quote裡面存的就是一個參數需繼續走訪。
+             || inputSExp -> left -> token_data.token_type == "quote" ) {
+          if ( aSaveFunPara.quote_Num == 1 ) {                 // 第一個已經bypass了，設定第二個start!。
+            aSaveFunPara.parameter_Pos.push( current_pos );   // 這時候存的參數是(.....
+          } // if
+
+          aSaveFunPara.quote_Num++;
+        } // if
+        else { 
+          if ( aSaveFunPara.quote_Num == 0 ) {             // 新的function，左邊接的node是function ^0^。
+            SaveFunctionParameter newSaveFunPara;
+            newSaveFunPara.function_Pos = current_pos + 1; // 下一個即是function。    
+            newSaveFunPara.startFun_Num = 1;               // 此function層開始往下計算層數xd。
+            aSaveFunPara.quote_Num = 0;                    // 剛開始quote = 0
+            mSave_Table.push( newSaveFunPara );            // 完成一個function位置的傳遞。
+            pushfunpara = false;                           // 因為是新增一個function
+          } // if
+          else if ( aSaveFunPara.quote_Num == 1 ) {        // 第一個已經bypass了，設定參數!。
+            aSaveFunPara.parameter_Pos.push( current_pos );   // 這時候存的參數是(.....
+          } // else if
+
+          mOnlyQuote = false;  
+        } // else
+
+      } // if  
+      else if ( inputSExp -> isEnd ) {   
+        DealmStartFun_Number( "SUB", aSaveFunPara );
+        // >>.結尾<< 這種形式(也一樣要帶入參數)
+        if ( inputSExp -> token_data.token_type != "NIL" ) aSaveFunPara.parameter_Pos.push( current_pos );
+        int finish = aSaveFunPara.startFun_Num;
+        if ( finish == 0 ) {
+          EvaluateFunction( aSaveFunPara );
+          mSave_Table.pop(); // 確定會有push的情況下(start與end成對)。
+          pushfunpara = false;
+        } // if
+        else if ( finish == 1 ) {   // 要回到第一層了，quote_Num值記得初始化。
+          aSaveFunPara.quote_Num = 0;
+        } // else if
+
+      } // else if
+      else if ( inputSExp -> left == NULL && inputSExp -> right == NULL ) {  // 存參數
+      // 兩種情況才可以加入，(一)不能存到funtion (二) 到quote結束之前 皆不存
+        if ( aSaveFunPara.startFun_Num == 1 
+             && mAllFunctionParameter[current_pos-1] -> isStart == false ) {
+          aSaveFunPara.parameter_Pos.push( current_pos );
+        } // if
+
+      } // else if
+
+      if ( mSave_Table.size() > 0 && pushfunpara ) {
+        mSave_Table.pop();
+        mSave_Table.push( aSaveFunPara );
+      } // if  
+
+      current_pos++;
+      EvaluateParameter( inputSExp -> left, current_pos );
+      EvaluateParameter( inputSExp -> right, current_pos );
+    } // if
+
+  } // EvaluateParameter()
+
+  void DealmStartFun_Number( string addorsub, SaveFunctionParameter & aSaveFunPara ) {
+    if ( aSaveFunPara.startFun_Num > 0 ) {
+      if ( addorsub == "ADD" ) {
+        aSaveFunPara.startFun_Num++;
+      } // if
+      else if ( addorsub == "SUB" ) {
+        aSaveFunPara.startFun_Num--;
+      } // else if
+
+    } // if
+  } // DealmStartFun_Number()
+
+
+  // (一)檢查有無此function  (二) 設定要進入此function的參數
+  void EvaluateFunction( SaveFunctionParameter aSaveFunPara ) {
+    if ( mOnlyQuote ) {
+      mResultSExp = mAllFunctionParameter[aSaveFunPara.parameter_Pos.front()]; // 只會有一個參數。
+    } // if
+    else {
+      int fun_lastpos = aSaveFunPara.function_Pos;
+      int defineError = -1;
+      string fun_type = ""; 
+      string fun_name = "";
+      if ( IsFunction( fun_lastpos, fun_name, fun_type, defineError ) ) {
+
+
+      } // if
+      else {
+        NonFunctionErrorInfo aNonFunctionErrorInfo;
+        if ( defineError == -1 ) aNonFunctionErrorInfo.nonfun_name = mAllFunctionParameter[fun_lastpos];
+        else aNonFunctionErrorInfo.nonfun_name = gDefineTable[defineError] -> define_value;
+        throw aNonFunctionErrorInfo;
+      } // else
+
+    } // else
+    
+    mOneEvaluate = false;
+  } // EvaluateFunction()
+
+  bool IsFunction( int fun_lastpos, string & fun_name, string & fun_type, int & defineError ) {
+    fun_name = mAllFunctionParameter[fun_lastpos] -> token_data.token_name;
+    int i = 0;
+    while ( gDefineTable.size() > i ) {
+      if ( gDefineTable[i] -> define_name == fun_name ) {
+        fun_name = gDefineTable[i] -> define_value -> token_data.token_name;
+        defineError = i;
+      } // if
+
+      i++;
+    } // while
+
+    if ( fun_name == "cons" || fun_name == "list" ) {
+      fun_type = "Constructors";
+    } // if
+    else if ( fun_name == "define" ) {
+      fun_type = "Bounding";
+    } // else if  
+    else if ( fun_name == "car" || fun_name == "cdr" ) {
+      fun_type = "Part accessors";
+    } // else if  
+    else if ( fun_name == "atom?" || fun_name == "pair?" || fun_name == "list?" || fun_name == "null?"
+              || fun_name == "integer?" || fun_name == "real?" || fun_name == "number?" 
+              || fun_name == "string?" || fun_name == "boolean" || fun_name == "symbol" ) {
+      fun_type = "Primitive predicates";          
+    } // else if
+    else if ( fun_name == "+" || fun_name == "-" || fun_name == "*" || fun_name == "/" ) {
+      fun_type = "Number arithmetic";
+    } // else if
+    else if ( fun_name == "not" || fun_name == "and" || fun_name == "or" ) {
+      fun_type = "Logical";
+    } // else if
+    else if ( fun_name == ">" || fun_name == ">=" || fun_name == "<" || fun_name == "<=" 
+              || fun_name == "=" ) {
+      fun_type = "Number compare";
+    } // else if            
+    else if ( fun_name == "string-append" || fun_name == "string>?" || fun_name == "string<?" 
+              || fun_name == "string=?" ) {
+      fun_type = "String compare";
+    } // else if
+    else if ( fun_name == "eqv" || fun_name == "equal" || ) {
+      fun_type = "Eqivalence tester";
+    } // else if
+    else if ( fun_name == "begin" ) {
+      fun_type = "Sequencing";
+    } // else if
+    else if ( fun_name == "if" || fun_name == "cond" ) {
+      fun_type = "Conditionals";
+    } // else if
+    else {
+      return false;
+    } // else
+
+    return true;
+  } // IsFunction()
+
+  bool IsUnBoundSymbol( TokenData tokendata, int & define_pos ) {
+    if ( tokendata.token_type == "SYMBOL" ) {
+      int i  = 0;
+      while ( gDefineTable.size() > i ) {
+        if ( gDefineTable[i] -> define_name == tokendata.token_name ) {
+          tokendata.token_name = gDefineTable[i] -> define_value -> token_data.token_name;
+          define_pos = i;
+        } // if
+
+        i++;
+      } // while
+
+    } // if
+
+    return false;
+  } // IsUnBoundSymbol()
+
   public:
-    TreeNode * resultSExp;               // 一次處理一個SExp，一個SExp代表一個樹的結構。
   Tree() {
-    resultSExp = new TreeNode;          
-    resultSExp -> left = NULL;
-    resultSExp -> right = NULL;   
-    resultSExp -> isStart = false;
-    resultSExp -> isEnd = false;
+    mOnlyQuote = true;
+    mPrintSExp = true;
+    mOneEvaluate = true;
   } // Tree()
 
   // 印成list-like formate
@@ -1035,37 +1232,26 @@ class Tree {
     return false;
   } // IsAtom()
 
-  // 主要目的(一)存參數給Function給使用。
-  TreeNode * EvaluateParameter( TreeNode * inputSExp, TreeNode * resultSExp, bool & printSExp ) {
-    if ( inputSExp ) {
-      if ( inputSExp -> isStart ) {
-
+  // catch Error跟進入運算，並返回運算完的reusltSExp給main()  
+  TreeNode * EvaluateSExp( TreeNode * inputSExp, bool & printSExp ) {
+    try {
+      int current_pos = 0;
+      if ( inputSExp -> left == NULL && inputSExp -> right == NULL ) {
+        if ( IsUnBoundSymbol( inputSExp -> token_data, ) )      
+        mResultSExp = inputSExp;
       } // if
-      else if ( inputSExp -> isEnd ) {
+      else {
+        EvaluateParameter( inputSExp, current_pos );  // 先計算參數，再計算function。
+      } // else 
+    
+    } // try
+    catch( NonFunctionErrorInfo aNonFunctionErrorInfo ) {
+      cout << "ERROR (attempt to apply non-function) : ";
+      mResultSExp = aNonFunctionErrorInfo.nonfun_name;
+    } // catch
 
-      } // else if
-      else if ( inputSExp -> left == NULL && inputSExp -> right == NULL ) {
-
-      }  // else if
-
-      EvaluateParameter( inputSExp -> left, resultSExp, printSExp );
-      EvaluateParameter( inputSExp -> right, resultSExp, printSExp );
-    } // if
-
-    return resultSExp;
-  } // EvaluateParameter()
-
-  // catch Error跟進入運算，並返回運算完的reusltSExp給main()
-  TreeNode * EvaluateSExp( TreeNode * inputSExp, Tree & aTree, bool & printSExp ) {
-  try {
-    aTree.resultSExp = aTree.EvaluateParameter( inputSExp, resultSExp, printSExp );
-  } // try
-  catch( ) {
-
-  } // catch
-
-  return aTree.resultSExp;
-} // EvaluateSExp()
+    return mResultSExp;
+  } // EvaluateSExp()
 
 }; // Tree
 
@@ -1112,7 +1298,6 @@ int main() {
   cout << "> ";
   bool finished = false;
   int lastspace = 0;
-  Tree aTree;
   if ( cin.peek() == EOF ) {            // 先確定一開始測試檔中有資料，無就直接印錯誤，有就繼續往下走。
     cout << "ERROR (no more input) : END-OF-FILE encountered";
   } // if
@@ -1129,12 +1314,13 @@ int main() {
       // aTree.Preorder( aTreeRoot );
       // Scanner與Paser互相溝通的function，等Paser處理完並無錯之後就開始建Tree。 user讀到 (exit)，設定finished，結束這次測試檔。      
       if ( !finished ) {
+        Tree aTree;
         TreeNode * resultSExp;               // 一次處理一個SExp，一個SExp代表一個樹的結構。
         bool printSExp = true;
-        resultSExp = EvaluateSExp( inputSExp, aTree, printSExp );
+        resultSExp = aTree.EvaluateSExp( inputSExp, printSExp );
         bool firstsexp = true;
         string printed = "";
-        if ( printSExp ) aTree.PrintSExp( inputSExp, printed, firstsexp );
+        if ( printSExp ) aTree.PrintSExp( resultSExp, printed, firstsexp );
       } // if           
 
     } // try
