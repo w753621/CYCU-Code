@@ -58,7 +58,7 @@ struct SaveFunctionParameter {
 }; // SaveFunctionParameter
 
 struct UnboundSymbolErrorInfo {
-  TreeNode * symbol_name;
+  string symbol_name;
 }; // UnboundSymbolErrorInfo
 
 struct NonFunctionErrorInfo {
@@ -66,11 +66,11 @@ struct NonFunctionErrorInfo {
 }; // NonFunctionErrorInfo
 
 struct AgumentNumberErrorInfo {
-  string eval_name;
+  string fun_name;
 }; // AgumentNumberErrorInfo
 
 // 接下存的是本身文法不合法的
-struct ConsListErrorInfo {
+struct NonListErrorInfo {
   TreeNode * error_node;
 }; // ConsListErrorInfo
 
@@ -874,38 +874,101 @@ class Parser {
 class Tree {
   private:
     vector<TreeNode*> mAllFunctionParameter;  // 計算參數時，所有存入的function & parameter。
-    stack<SaveFunctionParameter> mSave_Table; // 紀錄Function位置(Function_Pos)，Function計算參數何時結束(startFun_Num)
+    queue<SaveFunctionParameter> mSave_Table; // 紀錄Function位置(Function_Pos)，Function計算參數何時結束(startFun_Num)
                                               // 紀錄Parameter位置(Parameter_Pos)。
     TreeNode * mResultSExp;   // 一次處理一個SExp，一個SExp代表一個樹的結構。
     bool mOnlyQuote;          // 該sexp只有quote，計算多餘的第一個quote用。
     bool mPrintSExp;          // 控制需不需要印出sexp用。
-    bool mOneEvaluate;
+    int mInside_Function_Num;  // 在做參數計算時，
   // KEY:遇到QUOTE就是一個List，不然下一個Is_Start左邊接的就是function。
-
   void EvaluateParameter( TreeNode * inputSExp, int & current_pos ) {
     if ( inputSExp ) {
       mAllFunctionParameter.push_back( inputSExp );
+
       if ( inputSExp -> isStart ) {  // 該層開始。他媽的要先收集左邊的function跟在右手邊的所有參數。
         string fun_name = "", fun_type = "";
-        if ( IsFunction( inputSExp -> left, fun_name, fun_type ) ) {
-        // 確定拿到計算的function，開始往右收集所有參數。
-
-        } // if
+        // 確定拿到計算的Function，不符合就丟出Error。
+        Function_Check( inputSExp -> left, fun_name, fun_type );
 
         current_pos++;
         EvaluateParameter( inputSExp -> right, current_pos );
       } // if
       else if ( inputSExp -> isEnd ) {
+        // 確定Argument Number，不符合丟出Error。
+        // ArgumentNum_Check( inputSExp -> right, fun_name );
+        if ( mInside_Function_Num != 0 );
+      } // else if
 
+      // 照道理，左邊存的node要是參數
+      else if ( inputSExp -> token_data.token_type == "LEFT-PAREN" ) { //連接用的左括號，
+        current_pos++;
+        EvaluateParameter( inputSExp -> right, current_pos );
       } // else if
 
     } // if
+
   } // EvaluateParameter()
 
-  // (一)檢查有無此function  (二) 設定要進入此function的參數
+  void ArgumentNum_Check( int check_num, string fun_name, string fun_type ) {
+    bool check_get = false;
+    if ( fun_name == "cons" ) {
+      if ( check_num == 2 ) check_get = true;
+    } // if
+    else if ( fun_name == "list" ) {
+      if ( check_num >= 0 ) check_get = true;
+    } // else if
+    else if ( fun_name == "define" ) {
+      if ( check_num == 2 ) check_get = true;
+    } // else if
+    else if ( fun_type == "Part accessors" ) {
+      if ( check_num == 1 ) check_get = true;
+    } // else if
+    else if ( fun_type == "Primitive predicates" ) {
+      if ( check_num == 1 ) check_get = true;
+    } // else if
+    else if ( fun_type == "Number arithmetic" ) {
+      if ( check_num >= 2 ) check_get = true;
+    } // else if
+    else if ( fun_type == "Logical" ) {
+      if ( fun_name == "not" ) {
+        if ( check_num == 1 ) check_get = true;
+      } // if
+      else {
+        if ( check_num >= 2 ) check_get = true;
+      } // else
 
-  bool IsFunction( TreeNode * fun_node, string & fun_name, string & fun_type ) {
-    int define_pos = -1;
+    } // else if
+    else if ( fun_type == "Number compare" || fun_type == "String compare" ) {
+      if ( check_num >= 2 ) check_get = true;
+    } // else if
+    else if ( fun_type == "Eqivalence tester" ) {
+      if ( check_num == 2 ) check_get = true;
+    } // else if
+    else if ( fun_type == "Sequencing" ) {
+      if ( check_num >= 1 ) check_get = true;
+    } // else if
+    else if ( fun_type == "Conditionals" ) {
+      if ( fun_name == "cond" ) {
+        if ( check_num >= 1 ) check_get = true;
+      } // if
+      else {
+        if ( check_num == 2 || check_num == 3 ) check_get = true;
+      } // else
+
+    } // else if
+
+    // throw argument_num error
+    if ( check_get == false ) {
+      AgumentNumberErrorInfo aAgumentNumberErrorInfo;
+      aAgumentNumberErrorInfo.fun_name = fun_name;
+      throw aAgumentNumberErrorInfo;
+    } // if
+
+  } // ArgumentNum_Check()
+
+  // (一)檢查有無此function  (二) 設定要進入此function的參數
+  void Function_Check( TreeNode * fun_node, string & fun_name, string & fun_type ) {
+    int define_pos = -1;  // 如果symbol有被定義的話，其值會被更改。
     if ( IsBoundSymbol( fun_node -> token_data, define_pos ) ) {  // 有被定義，不是的話代表是non
       fun_name = gDefineTable[define_pos] -> define_value -> token_data.token_name;
     } // if
@@ -954,7 +1017,7 @@ class Tree {
       if ( define_pos == -1 ) { // 不是定義，如果是symbol就non-bound，如果不是symbol就nonfunction
         if ( fun_node -> token_data.token_type == "SYMBOL" ) {
           UnboundSymbolErrorInfo aUnboundSymbolErrorInfo;
-          aUnboundSymbolErrorInfo.symbol_name = fun_node;
+          aUnboundSymbolErrorInfo.symbol_name = fun_node -> token_data.token_name;
           throw aUnboundSymbolErrorInfo;
         } // if
         else {
@@ -972,8 +1035,7 @@ class Tree {
 
     } // else
 
-    return true;
-  } // IsFunction()
+  } // Function_Check()
 
   bool IsBoundSymbol( TokenData tokendata, int & define_pos ) {
     if ( tokendata.token_type == "SYMBOL" ) {
@@ -996,7 +1058,7 @@ class Tree {
   Tree() {
     mOnlyQuote = true;
     mPrintSExp = true;
-    mOneEvaluate = true;
+    mInside_Function_Num = 0;
   } // Tree()
 
   // 印成list-like formate
@@ -1087,6 +1149,14 @@ class Tree {
     catch( NonFunctionErrorInfo aNonFunctionErrorInfo ) {
       cout << "ERROR (attempt to apply non-function) : ";
       mResultSExp = aNonFunctionErrorInfo.nonfun_name;
+    } // catch
+    catch( UnboundSymbolErrorInfo aUnboundSymbolErrorInfo ) {
+      cout << "ERROR (unbound symbol) : " << aUnboundSymbolErrorInfo.symbol_name << "\n";
+      mPrintSExp = false;
+    } // catch
+    catch( AgumentNumberErrorInfo aAgumentNumberErrorInfo ) {
+      cout << "ERROR (incorrect number of arguments) : " << aAgumentNumberErrorInfo.fun_name << "\n";
+      mPrintSExp = false;
     } // catch
 
     return mResultSExp;

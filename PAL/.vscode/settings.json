@@ -25,5 +25,6 @@
         "-Wall"
     ],
     "clang.completion.enable": true,
-    "python.pythonPath": "C:\\Users\\LEX\\Anaconda3\\python.exe"
+    "python.pythonPath": "C:\\Users\\LEX\\Anaconda3\\python.exe",
+    "sync.gist": "https://gist.github.com/w753621/b63dfad3d5a4cc5fc1163ab4977d27b102880961"
 }
