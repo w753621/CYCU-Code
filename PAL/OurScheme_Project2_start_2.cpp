@@ -51,9 +51,9 @@ struct DefineTable {
 }; // DefineTable
 
 struct SaveFunctionParameter {
-  int function_Pos;   // Is_Start=true¦s¤J¥ªÃäªºnode position¡Aµ¥¨ìIs_END¦¨¹ï¥i¥H­pºâ®É¤~pop¥X¡C
-  int quote_Num;      // bypass²Ä¤@­Óquote¥Î¡C
-  int startFun_Num;  // ¬ö¿ý¸Ófunctionªºstart¼Æ¥Ø¡Astart=end ¼Æ¥Ø¤~ª¾¹D¸Ófunctionªº°Ñ¼Æ§ä¨ì§¹¡C
+  string fun_Name;
+  string fun_Type;
+  int argument_Num;    // ­pºâ¸Ófunction¼h¦³´X­Ó°Ñ¼Æ(¥]§t¥i¯à¬OFunction)¡C
   queue<int> parameter_Pos; // ­pºâ°Ñ¼Æ®É©Ò¦sªº°Ñ¼Æ¡C
 }; // SaveFunctionParameter
 
@@ -89,7 +89,7 @@ class Scanner {         // ¥u­t³d¤Á¥XGetToken()¡A¸òPeekToken()¡A¨Ã¦^¶Ç¸ÓToken¦r¦
         token_data.token_type = "NIL";
       } // if
       //  case2: ( ) LEFT-PAREN RIGHT-PAREN
-      else if ( cin.peek() == ' ' || cin.peek() == '\n' || cin.peek() == '\t' ) { 
+      else if ( cin.peek() == ' ' || cin.peek() == '\n' || cin.peek() == '\t' ) {
         char sexpchar = '\0';
         cin.get( sexpchar );
         TraceTokenLineColumn( sexpchar );
@@ -874,33 +874,40 @@ class Parser {
 class Tree {
   private:
     vector<TreeNode*> mAllFunctionParameter;  // ­pºâ°Ñ¼Æ®É¡A©Ò¦³¦s¤Jªºfunction & parameter¡C
-    queue<SaveFunctionParameter> mSave_Table; // ¬ö¿ýFunction¦ì¸m(Function_Pos)¡AFunction­pºâ°Ñ¼Æ¦ó®Éµ²§ô(startFun_Num)
-                                              // ¬ö¿ýParameter¦ì¸m(Parameter_Pos)¡C
+    stack<SaveFunctionParameter> mSave_Table;
     TreeNode * mResultSExp;   // ¤@¦¸³B²z¤@­ÓSExp¡A¤@­ÓSExp¥Nªí¤@­Ó¾ðªºµ²ºc¡C
     bool mOnlyQuote;          // ¸Ósexp¥u¦³quote¡A­pºâ¦h¾lªº²Ä¤@­Óquote¥Î¡C
     bool mPrintSExp;          // ±±¨î»Ý¤£»Ý­n¦L¥Xsexp¥Î¡C
-    int mInside_Function_Num;  // ¦b°µ°Ñ¼Æ­pºâ®É¡A
+    int mInside_Function_Num;  // ­pºâÁ`°µ¤F´X­ÓFunction¡C
   // KEY:¹J¨ìQUOTE´N¬O¤@­ÓList¡A¤£µM¤U¤@­ÓIs_Start¥ªÃä±µªº´N¬Ofunction¡C
   void EvaluateParameter( TreeNode * inputSExp, int & current_pos ) {
     if ( inputSExp ) {
       mAllFunctionParameter.push_back( inputSExp );
 
       if ( inputSExp -> isStart ) {  // ¸Ó¼h¶}©l¡C¥L¶ýªº­n¥ý¦¬¶°¥ªÃäªºfunction¸ò¦b¥k¤âÃäªº©Ò¦³°Ñ¼Æ¡C
-        string fun_name = "", fun_type = "";
         // ½T©w®³¨ì­pºâªºFunction¡A¤£²Å¦X´N¥á¥XError¡C
-        Function_Check( inputSExp -> left, fun_name, fun_type );
-
+        SaveFunctionParameter newFun_Para_Info;
+        Function_Check( inputSExp -> left, newFun_Para_Info.fun_Name, newFun_Para_Info.fun_Type );
+        // ¶}©l®³¨ú¦¹¼hFunctionªº°Ñ¼Æ(¥ý§PÂ_¦³¨S¦³NON-LIST¡A¦A§PÂ_¼Æ¥Ø¡A³Ì«á¦A¶i¦æFunction­pºâ(°Ñ¼ÆªºType))¡C
+        newFun_Para_Info.argument_Num = 0;
+        mSave_Table.push( newFun_Para_Info );
         current_pos++;
         EvaluateParameter( inputSExp -> right, current_pos );
+        // Åç¦¬®É¶¡!!!¡A½T©wArgument Number¡A¤£²Å¦X´N¥á¥XError¡C
+        int argu_num = newFun_Para_Info.argument_Num;
+        ArgumentNum_Check( argu_num , newFun_Para_Info.fun_Name , newFun_Para_Info.fun_Type );
+        if ( mInside_Function_Num != 0 );
       } // if
       else if ( inputSExp -> isEnd ) {
-        // ½T©wArgument Number¡A¤£²Å¦X¥á¥XError¡C
-        // ArgumentNum_Check( inputSExp -> right, fun_name );
-        if ( mInside_Function_Num != 0 );
+        return;
       } // else if
 
       // ·Ó¹D²z¡A¥ªÃä¦sªºnode­n¬O°Ñ¼Æ
-      else if ( inputSExp -> token_data.token_type == "LEFT-PAREN" ) { //³s±µ¥Îªº¥ª¬A¸¹¡A
+      else if ( inputSExp -> token_data.token_type == "LEFT-PAREN" ) {  // ¹J¨ì³s±µ¥Îªº¥ª¬A¸¹¡C
+        SaveFunctionParameter aFun_Para_Info;
+        aFun_Para_Info = mSave_Table.top();
+        aFun_Para_Info.argument_Num++;
+        mSave_Table.pop();
         current_pos++;
         EvaluateParameter( inputSExp -> right, current_pos );
       } // else if
@@ -909,50 +916,50 @@ class Tree {
 
   } // EvaluateParameter()
 
-  void ArgumentNum_Check( int check_num, string fun_name, string fun_type ) {
+  void ArgumentNum_Check( int argument_num, string fun_name, string fun_type ) {
     bool check_get = false;
     if ( fun_name == "cons" ) {
-      if ( check_num == 2 ) check_get = true;
+      if ( argument_num == 2 ) check_get = true;
     } // if
     else if ( fun_name == "list" ) {
-      if ( check_num >= 0 ) check_get = true;
+      if ( argument_num >= 0 ) check_get = true;
     } // else if
     else if ( fun_name == "define" ) {
-      if ( check_num == 2 ) check_get = true;
+      if ( argument_num == 2 ) check_get = true;
     } // else if
     else if ( fun_type == "Part accessors" ) {
-      if ( check_num == 1 ) check_get = true;
+      if ( argument_num == 1 ) check_get = true;
     } // else if
     else if ( fun_type == "Primitive predicates" ) {
-      if ( check_num == 1 ) check_get = true;
+      if ( argument_num == 1 ) check_get = true;
     } // else if
     else if ( fun_type == "Number arithmetic" ) {
-      if ( check_num >= 2 ) check_get = true;
+      if ( argument_num >= 2 ) check_get = true;
     } // else if
     else if ( fun_type == "Logical" ) {
       if ( fun_name == "not" ) {
-        if ( check_num == 1 ) check_get = true;
+        if ( argument_num == 1 ) check_get = true;
       } // if
       else {
-        if ( check_num >= 2 ) check_get = true;
+        if ( argument_num >= 2 ) check_get = true;
       } // else
 
     } // else if
     else if ( fun_type == "Number compare" || fun_type == "String compare" ) {
-      if ( check_num >= 2 ) check_get = true;
+      if ( argument_num >= 2 ) check_get = true;
     } // else if
     else if ( fun_type == "Eqivalence tester" ) {
-      if ( check_num == 2 ) check_get = true;
+      if ( argument_num == 2 ) check_get = true;
     } // else if
     else if ( fun_type == "Sequencing" ) {
-      if ( check_num >= 1 ) check_get = true;
+      if ( argument_num >= 1 ) check_get = true;
     } // else if
     else if ( fun_type == "Conditionals" ) {
       if ( fun_name == "cond" ) {
-        if ( check_num >= 1 ) check_get = true;
+        if ( argument_num >= 1 ) check_get = true;
       } // if
       else {
-        if ( check_num == 2 || check_num == 3 ) check_get = true;
+        if ( argument_num == 2 || argument_num == 3 ) check_get = true;
       } // else
 
     } // else if
