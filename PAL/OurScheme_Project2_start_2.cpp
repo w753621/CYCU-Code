@@ -53,6 +53,7 @@ struct DefineTable {
 struct SaveFunctionParameter {
   string fun_Name;
   string fun_Type;
+  int fun_Pos;
   int argument_Num;    // 計算該function層有幾個參數(包含可能是Function)。
   queue<int> parameter_Pos; // 計算參數時所存的參數。
 }; // SaveFunctionParameter
@@ -71,8 +72,8 @@ struct AgumentNumberErrorInfo {
 
 // 接下存的是本身文法不合法的
 struct NonListErrorInfo {
-  TreeNode * error_node;
-}; // ConsListErrorInfo
+  TreeNode * nonlist_node;
+}; // NonListErrorInfo
 
 vector<DefineTable*> gDefineTable;
 
@@ -873,48 +874,149 @@ class Parser {
 
 class Tree {
   private:
-    vector<TreeNode*> mAllFunctionParameter;  // 計算參數時，所有存入的function & parameter。
-    stack<SaveFunctionParameter> mSave_Table;
-    TreeNode * mResultSExp;   // 一次處理一個SExp，一個SExp代表一個樹的結構。
+    vector<TreeNode*> mAllFunPara;  // 所有存入的function & parameter，(存左括號連接點)。
+    queue<SaveFunctionParameter> mSave_Table;
+    TreeNode * mStart_ResultSExp;   // 開始的頭，此為結果。
+    TreeNode * mCur_ResultSExp;    //  現在進行到的位置，多Function判斷用。
     bool mOnlyQuote;          // 該sexp只有quote，計算多餘的第一個quote用。
     bool mPrintSExp;          // 控制需不需要印出sexp用。
-    int mInside_Function_Num;  // 計算總做了幾個Function。
+    int mCurrent_pos;         // 每一次呼叫都增加1，因為要用此來插入mAllFunPara。
   // KEY:遇到QUOTE就是一個List，不然下一個Is_Start左邊接的就是function。
-  void EvaluateParameter( TreeNode * inputSExp, int & current_pos ) {
+  void EvaluateParameter( TreeNode * inputSExp ) {
     if ( inputSExp ) {
-      mAllFunctionParameter.push_back( inputSExp );
-
       if ( inputSExp -> isStart ) {  // 該層開始。他媽的要先收集左邊的function跟在右手邊的所有參數。
-        // 確定拿到計算的Function，不符合就丟出Error。
+        // 儲存該function node isStart的位置。
         SaveFunctionParameter newFun_Para_Info;
-        Function_Check( inputSExp -> left, newFun_Para_Info.fun_Name, newFun_Para_Info.fun_Type );
-        // 開始拿取此層Function的參數(先判斷有沒有NON-LIST，再判斷數目，最後再進行Function計算(參數的Type))。
         newFun_Para_Info.argument_Num = 0;
+        mAllFunPara.push_back( inputSExp );         // *要做修改(紀錄node)*
+        newFun_Para_Info.fun_Pos = mCurrent_pos;     // *要做修改(紀錄fun位置)*
         mSave_Table.push( newFun_Para_Info );
-        current_pos++;
-        EvaluateParameter( inputSExp -> right, current_pos );
-        // 驗收時間!!!，確定Argument Number，不符合就丟出Error。
-        int argu_num = newFun_Para_Info.argument_Num;
-        ArgumentNum_Check( argu_num , newFun_Para_Info.fun_Name , newFun_Para_Info.fun_Type );
-        if ( mInside_Function_Num != 0 );
+        mCurrent_pos++;
+        EvaluateParameter( inputSExp -> right );
+        // 已經做完該層的運算了，開始第二層(第一個之後的function)的尋訪。
+        return mCurrent_pos;
       } // if
       else if ( inputSExp -> isEnd ) {
-        return;
-      } // else if
-
-      // 照道理，左邊存的node要是參數
-      else if ( inputSExp -> token_data.token_type == "LEFT-PAREN" ) {  // 遇到連接用的左括號。
-        SaveFunctionParameter aFun_Para_Info;
-        aFun_Para_Info = mSave_Table.top();
-        aFun_Para_Info.argument_Num++;
+        SaveFunctionParameter aheadFun_Para_Info;
+        aheadFun_Para_Info = mSave_Table.front();
         mSave_Table.pop();
-        current_pos++;
-        EvaluateParameter( inputSExp -> right, current_pos );
+        int fun_pos = aheadFun_Para_Info.fun_Pos;         // fun位置
+        int argu_num = aheadFun_Para_Info.argument_Num;   // argu數目
+        TreeNode * fun_node = mAllFunPara[fun_pos] -> left;
+        // 驗收時間!!! non-list的優先順序大於一切。先判斷有沒有non-list。
+        // 再來檢查Function，最後檢查Argument Number。
+        NonList_Chcek( inputSExp, fun_pos );
+        Function_Check( fun_node, aheadFun_Para_Info.fun_Name, aheadFun_Para_Info.fun_Type );
+        ArgumentNum_Check( argu_num, aheadFun_Para_Info.fun_Name, aheadFun_Para_Info.fun_Type );
+        EvaluateFunction( aheadFun_Para_Info );   // 開始做運算。
+      } // else if
+      // 照道理，左邊存的node要是參數()
+      else if ( inputSExp -> token_data.token_type == "LEFT-PAREN" ) {  // 遇到連接用的左括號。
+        SaveFunctionParameter aheadFun_Para_Info;
+        aheadFun_Para_Info = mSave_Table.front();
+        aheadFun_Para_Info.argument_Num++;
+        // 儲存參數位置。
+        aheadFun_Para_Info.parameter_Pos.push( mCurrent_pos ); // 存該點位置
+        mAllFunPara.push_back( inputSExp -> left );            // 有可能存到的function、quote、參數
+        mSave_Table.pop();
+        mSave_Table.push( aheadFun_Para_Info );
+        mCurrent_pos++;
+        EvaluateParameter( inputSExp -> right );
       } // else if
 
     } // if
 
   } // EvaluateParameter()
+
+  void EvaluateFunction( SaveFunctionParameter aSaveFunctionParameter ) {
+    string fun_name = aSaveFunctionParameter.fun_Name;
+    string fun_type = aSaveFunctionParameter.fun_Type;
+    SetStartResultTree();
+    if ( fun_type == "Constructors" ) {
+      if ( fun_name == "cons" ) EVAcons( aSaveFunctionParameter.parameter_Pos );
+      else EVAlist( aSaveFunctionParameter.parameter_Pos );
+    } // if
+    else if ( fun_type == "Part accessors" ) {
+
+    } // else if
+    else if ( fun_type == "Bounding" ) {
+
+    } // else if
+    else if ( fun_type == "Primitive predicates" ) {
+
+    } // else if
+    else if ( fun_type == "Number arithmetic" ) {
+
+    } // else if
+    else if ( fun_type == "Logical" ) {
+
+    } // else if
+    else if ( fun_type == "Number compare" ) {
+
+    } // else if
+    else if ( fun_type == "String compare" ) {
+
+    } // else if
+    else if ( fun_type == "Eqivalence tester" ) {
+
+    } // else if
+    else if ( fun_type == "Sequencing" ) {
+
+    } // else if
+    else if ( fun_type == "Conditionals" ) {
+
+    } // else if
+
+  } // EvaluateFunction()
+
+  // 參數有四種的可能，1.function 2.quote(變種)參數  3.sybol(變種define)參數 4.一般參數
+  // 如果是function會回傳false，開始進入新的function計算。(當前後面的參數暫停計算)。
+  TreeNode * DealParameterType( TreeNode * para_node, bool & isFunction ) {
+    TreeNode * real_para;
+
+    return real_para;
+  } // DealParameterType()
+
+  void EVAcons( queue<int> parameter_pos ) {
+    bool isFunction = false;
+    int i = 0;
+    while ( parameter_pos.size() > i ) {
+      int para_pos = parameter_pos.front();
+      TreeNode * real_para = DealParameterType( mAllFunPara[para_pos], isFunction );
+      if ( i == 0 ) {
+        if ( isFunction ) mCur_ResultSExp -> left = EvaluateParameter( real_para );
+        else mCur_ResultSExp -> left = real_para;
+      } // if
+      else {
+        if ( isFunction ) mCur_ResultSExp -> right = EvaluateParameter( real_para );
+        else mCur_ResultSExp -> right = real_para;
+      } // else
+
+      parameter_pos.pop();
+      isFunction = false;
+      i++;
+    } // while
+
+  } // EVAcons()
+
+  void EVAlist( queue<int> parameter_pos ) {
+
+  } // EVAlist()
+
+  // 設定START_Resutlt 的頭，
+  void SetStartResultTree() {
+    if ( mStart_ResultSExp == NULL ) {
+      TokenData token_LP_data;
+      token_LP_data.token_name = "(";
+      token_LP_data.token_type = "LEFT-PAREN";
+      mStart_ResultSExp = new TreeNode;
+      mStart_ResultSExp -> token_data = token_LP_data;
+      mStart_ResultSExp -> isStart = true;
+      mStart_ResultSExp -> isEnd = false;
+      mCur_ResultSExp = mStart_ResultSExp; // cur跟上start
+    } // if
+
+  } // SetStartResultTree()
 
   void ArgumentNum_Check( int argument_num, string fun_name, string fun_type ) {
     bool check_get = false;
@@ -965,7 +1067,7 @@ class Tree {
     } // else if
 
     // throw argument_num error
-    if ( check_get == false ) {
+    if ( check_get == false ) {  // 還有其他error的可能性。
       AgumentNumberErrorInfo aAgumentNumberErrorInfo;
       aAgumentNumberErrorInfo.fun_name = fun_name;
       throw aAgumentNumberErrorInfo;
@@ -1044,6 +1146,15 @@ class Tree {
 
   } // Function_Check()
 
+  void NonList_Chcek( TreeNode * cur_node, int fun_pos ) {
+    if ( cur_node -> token_data.token_type != "NIL" ) {  // throw nonlist(最後是.結束的)。
+      NonListErrorInfo aNonListErrorInfo;
+      aNonListErrorInfo.nonlist_node = mAllFunPara[fun_pos];
+      throw aNonListErrorInfo;
+    } // if
+
+  } // NonList_Chcek()
+
   bool IsBoundSymbol( TokenData tokendata, int & define_pos ) {
     if ( tokendata.token_type == "SYMBOL" ) {
       int i = 0;
@@ -1065,7 +1176,7 @@ class Tree {
   Tree() {
     mOnlyQuote = true;
     mPrintSExp = true;
-    mInside_Function_Num = 0;
+    mCurrent_pos = 0;
   } // Tree()
 
   // 印成list-like formate
@@ -1143,13 +1254,12 @@ class Tree {
   // catch Error跟進入運算，並返回運算完的reusltSExp給main()
   TreeNode * EvaluateSExp( TreeNode * inputSExp, bool & printSExp ) {
     try {
-      int current_pos = 0;
       if ( inputSExp -> left == NULL && inputSExp -> right == NULL ) {
         //  有可能會有unbound的情形。
         mResultSExp = inputSExp;
       } // if
       else {
-        EvaluateParameter( inputSExp, current_pos );  // 先計算參數，再計算function。
+        EvaluateParameter( inputSExp );  // 先計算參數，再計算function。
       } // else
 
     } // try
@@ -1164,6 +1274,10 @@ class Tree {
     catch( AgumentNumberErrorInfo aAgumentNumberErrorInfo ) {
       cout << "ERROR (incorrect number of arguments) : " << aAgumentNumberErrorInfo.fun_name << "\n";
       mPrintSExp = false;
+    } // catch
+    catch( NonListErrorInfo aNonListErrorInfo ) {
+      cout << "ERROR (non-list) : ";
+      mResultSExp = aNonListErrorInfo.nonlist_node;
     } // catch
 
     return mResultSExp;
