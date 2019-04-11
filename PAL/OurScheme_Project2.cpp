@@ -641,7 +641,7 @@ class Parser {
     return false;
   } // IsAtom()
 
-  void TranslateToken() {      // 把輸入的sexp轉成dotted pair的形式。
+  void TranslateToken( int & dotforquote ) {      // 把輸入的sexp轉成dotted pair的形式。
     TokenData token_Dot_data;
     token_Dot_data.token_name = ".";
     token_Dot_data.token_type = "DOT";
@@ -658,10 +658,8 @@ class Parser {
     token_QUOTE_data.token_name = "quote";
     token_QUOTE_data.token_type = "QUOTE";
     int anumber = 0;
-    int nonnumber = 0;
     int realnumber = 0; // 遇到下一個左括號之前所還沒處理的quote數目(要在右括號處理時新增.nil)
-    stack<LPforRP> lpinfo; // 存與真實右括號相對應之真實左括號資訊 
-    bool justpop = false;
+    stack<LPforRP> lpinfo; // 存與真實右括號相對應之真實左括號資訊
     if ( mAccurate_token_vector.size() == 1 ) {
       mTranslated_token_vector.push_back( mAccurate_token_vector[0] );   // ATOM
       return;
@@ -672,25 +670,21 @@ class Parser {
 
           int cur = mTranslated_token_vector.size() - 1;
           if ( cur != -1 ) {
-            if ( mTranslated_token_vector[cur].token_type != "DOT" 
+            if ( mTranslated_token_vector[cur].token_type != "DOT"
                  && mTranslated_token_vector[cur].token_type != "LEFT-PAREN" ) {
               mTranslated_token_vector.push_back( token_Dot_data );
               mTranslated_token_vector.push_back( token_LP_data );
-              nonnumber++;
             } // if
           } // if
 
           mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );
           LPforRP newLPforRP;
           newLPforRP.real_num = 0;
-          newLPforRP.not_real_num = 0;
           newLPforRP.real_num = newLPforRP.real_num + realnumber;
-          newLPforRP.not_real_num = newLPforRP.real_num + nonnumber;
           lpinfo.push( newLPforRP );
           realnumber = 0;
-          nonnumber = 0;
           anumber++;
-            
+
           if ( mAccurate_token_vector[anumber].token_type != "QUOTE"
                && mAccurate_token_vector[anumber].token_type != "LEFT-PAREN" ) {
             mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );    // 存(之後下一個sexp【不是(了】
@@ -702,23 +696,22 @@ class Parser {
             realnumber++;
             anumber++;
           } // else
-    
-          if ( justpop ) justpop = false;
+
         } // if
         else if ( mAccurate_token_vector[anumber].token_type == "QUOTE" ) {
           int cur = mTranslated_token_vector.size() - 1;
           if ( cur != -1 ) {
             if ( mTranslated_token_vector[cur].token_type != "DOT" ) {
               mTranslated_token_vector.push_back( token_Dot_data );
-            } // if  
-            
+            } // if
+
             mTranslated_token_vector.push_back( token_LP_data );
             mTranslated_token_vector.push_back( token_LP_data );                       // 先建一個(
-            mTranslated_token_vector.push_back( token_QUOTE_data );                     // 並把Quote丟  
+            mTranslated_token_vector.push_back( token_QUOTE_data );                     // 並把Quote丟
           } // if
           else {
             mTranslated_token_vector.push_back( token_LP_data );                       // 先建一個(
-            mTranslated_token_vector.push_back( token_QUOTE_data );                     // 並把Quote丟     
+            mTranslated_token_vector.push_back( token_QUOTE_data );                     // 並把Quote丟
           } // else
 
           anumber++;
@@ -728,8 +721,6 @@ class Parser {
           LPforRP aLPforRP;
           aLPforRP = lpinfo.top();
           aLPforRP.real_num = aLPforRP.real_num + realnumber;
-          aLPforRP.not_real_num = aLPforRP.not_real_num + nonnumber;
-          cout << aLPforRP.real_num << "a\n";
           int cur = mTranslated_token_vector.size() - 1;
           if ( mTranslated_token_vector[cur-1].token_type == "LEFT-PAREN" ) {
             mTranslated_token_vector.push_back( token_Dot_data );
@@ -744,30 +735,30 @@ class Parser {
           while ( aLPforRP.real_num > 0 ) {
             mTranslated_token_vector.push_back( token_Dot_data );
             mTranslated_token_vector.push_back( token_NIL_data );
-            mTranslated_token_vector.push_back( token_RP_data ); 
+            mTranslated_token_vector.push_back( token_RP_data );
             aLPforRP.real_num--;
           } // while
 
           anumber++;
           lpinfo.pop();
-          justpop = true;
           realnumber = 0;
-          nonnumber = 0;
         } // else if
         else if ( mAccurate_token_vector[anumber].token_type == "DOT" ) {
           mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );
+          if ( mAccurate_token_vector[anumber+1].token_type == "QUOTE" ) {
+            dotforquote = mTranslated_token_vector.size();
+          } // if
           anumber++;
         } // else if
-        else {                   // 多增加一對.(  
-          int cur = mTranslated_token_vector.size() - 1; 
-          if ( mTranslated_token_vector[cur].token_type != "DOT" 
+        else {                   // 多增加一對.(
+          int cur = mTranslated_token_vector.size() - 1;
+          if ( mTranslated_token_vector[cur].token_type != "DOT"
                && mTranslated_token_vector[cur].token_type != "QUOTE" ) {
             mTranslated_token_vector.push_back( token_Dot_data );
             mTranslated_token_vector.push_back( token_LP_data );
             mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );
-            nonnumber++;      // 記得)加1，遇到)時返回這些)，(..)才能成對。
-          } // if  
-          else if ( mTranslated_token_vector[cur].token_type == "QUOTE" ) { 
+          } // if
+          else if ( mTranslated_token_vector[cur].token_type == "QUOTE" ) {
             mTranslated_token_vector.push_back( token_Dot_data );
             mTranslated_token_vector.push_back( token_LP_data );
             mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );
@@ -786,9 +777,9 @@ class Parser {
           else {
             mTranslated_token_vector.push_back( mAccurate_token_vector[anumber] );
           } // else
-          
-          anumber++;               
-        } // else  
+
+          anumber++;
+        } // else
 
       } // while
 
@@ -796,7 +787,9 @@ class Parser {
 
   } // TranslateToken()
 
-  TreeNode * BuildTree( TreeNode * aTreeRoot, int & i ) {
+
+  TreeNode * BuildTree( TreeNode * aTreeRoot, int & i, int dotforquote, int & record ) {
+    record++;
     TreeNode * newnode;
     newnode = new TreeNode;
     if ( mTranslated_token_vector.size() <= i ) {
@@ -818,13 +811,14 @@ class Parser {
         newnode -> isStart = true;
       } // if
       else {
-        if ( mTranslated_token_vector[i].token_type == "LEFT-PAREN" 
+        if ( mTranslated_token_vector[i].token_type == "LEFT-PAREN"
              && mTranslated_token_vector[i-1].token_type != "DOT" ) {
           newnode -> isStart = true;
         } // if
 
       } // else
 
+      if ( record == dotforquote ) newnode -> isEnd = true;
       i++;
       bool finished = false;
       // 預測下一個是不是)，是的話直接設為IsEnd並讀完所有)
@@ -843,17 +837,17 @@ class Parser {
 
       } // while
 
-      newnode -> left = BuildTree( newnode, i );      // 做完一個子sexp(expr)之後
+      newnode -> left = BuildTree( newnode, i, dotforquote, record );      // 做完一個子sexp(expr)之後
       if ( mTranslated_token_vector.size() <= i ) return newnode;
       if ( mTranslated_token_vector[i].token_type == "DOT" ) {
         i++;
         return newnode; // 遇到DOT中斷
       } // if
-      
-      newnode -> right = BuildTree( newnode, i );
+
+      newnode -> right = BuildTree( newnode, i, dotforquote, record );
       return newnode;
     } // else
-    
+
     return newnode;
   } // BuildTree()
 
@@ -890,8 +884,8 @@ class Tree {
   private:
   public:
   // 印成list-like formate
-  void PrintSExp( TreeNode * aTreeRoot, string & printed, bool & firstsexp ) { 
-    if ( aTreeRoot ) {    
+  void PrintSExp( TreeNode * aTreeRoot, string & printed, bool & firstsexp ) {
+    if ( aTreeRoot ) {
       if ( aTreeRoot -> isStart ) {
         if ( firstsexp ) {
           cout << aTreeRoot -> token_data.token_name + " ";
@@ -899,17 +893,24 @@ class Tree {
         } // if
         else {
           firstsexp = true;
-          cout << printed; 
+          cout << printed;
           cout << aTreeRoot -> token_data.token_name + " ";
           printed = printed + "  ";
         } // else
-        
+
       } // if
       else if ( aTreeRoot -> isEnd ) {
         // 如果是nil的話，表示該sexp沒有點，其他則代表有點。
         if ( aTreeRoot -> token_data.token_name == "nil" ) {
-            
+          printed = printed.assign( printed, 0, printed.size() - 2 );
+          cout << printed << ")" << "\n";
         } // if
+        else if ( aTreeRoot -> token_data.token_type == "LEFT-PAREN" ) {
+          cout << printed;
+          cout << "." << "\n";
+          cout << printed;
+          firstsexp = true;
+        } // else if
         else {
           cout << printed;
           cout << "." << "\n";
@@ -923,10 +924,10 @@ class Tree {
             cout << aTreeRoot -> token_data.token_name << "\n";
           } // else
 
+          printed = printed.assign( printed, 0, printed.size() - 2 );
+          cout << printed << ")" << "\n";
         } // else
 
-        printed = printed.assign( printed, 0, printed.size() - 2 );
-        cout << printed << ")" << "\n";
       } // else if
       else if ( aTreeRoot -> left == NULL && aTreeRoot -> right == NULL ) {
 
@@ -936,7 +937,7 @@ class Tree {
         else {
           cout << printed;
         } // else
-          
+
         if ( aTreeRoot -> token_data.token_type == "FLOAT" ) {
           float pointnumber;
           pointnumber = atof( aTreeRoot -> token_data.token_name.c_str() );
@@ -944,7 +945,7 @@ class Tree {
         } // if
         else {
           cout << aTreeRoot -> token_data.token_name << "\n";
-        } // else  
+        } // else
       } // else if
 
       PrintSExp( aTreeRoot -> left, printed, firstsexp );
@@ -977,11 +978,10 @@ class Tree {
 }; // Tree
 
 // Scanner與Parser互相溝通的function，等Paser處理完並無錯之後就開始建Tree。
-TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit  ) {  
+TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit  ) {
   Scanner aScanner( lastspace );                // 創一個aScanner方便我們「切」此SExp。
   Parser aParser;                 // 創一個aParser檢查我們aScanner切出來的token，
   TokenData first_Token_Data;    // 文法有沒有正確，正確就bulidtree，錯誤就回傳錯誤。
-  string geterrorline = "";
   if ( aParser.IsSexp( first_Token_Data, aScanner ) ) {   // 判斷Sexp的合法性，並且如果該完成的Sexp後面沒東西讀掉。
     lastspace = aScanner.ReadEndLine();
   } // if
@@ -996,7 +996,7 @@ TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit
 
   vector<TokenData> returnToken_vector = aParser.ReturnToken_vector(); // Sexp合法的開始。
   if ( returnToken_vector.size() == 3 ) {
-    if ( returnToken_vector[0].token_name == "(" 
+    if ( returnToken_vector[0].token_name == "("
          && returnToken_vector[1].token_name == "exit"
          && returnToken_vector[2].token_name == ")" ) {
       finished_exit = true;
@@ -1004,11 +1004,11 @@ TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit
     } // if
 
   } // if
-        
-  int i = 0;
-  aParser.TranslateToken();
-  aParser.PrintVector();
-  aTreeRoot = aParser.BuildTree( aTreeRoot, i );
+
+  int i = 0, dotforquote = -1, record = -1;
+  aParser.TranslateToken( dotforquote );
+  // aParser.PrintVector();
+  aTreeRoot = aParser.BuildTree( aTreeRoot, i, dotforquote, record );
   return aTreeRoot;
 } // ReadSExp()
 

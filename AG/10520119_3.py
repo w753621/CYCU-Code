@@ -1,3 +1,8 @@
+# 演算法分析機測
+# 學號: 10520127 / 10520121	/	10520119
+# 姓名: 戴承浩   /  杜欣洋	/	黃博泓
+#中原大學電資班 feat.資工系
+
 def recursion(tree, head, back):
 	count = head
 	if back > 1 :
@@ -21,5 +26,7 @@ line = input()
 while line != '0' :
 	x = line.split()
 	x = recursion(x, 0, len(x))
-	print(x)
+	for i in range(0, len(x)-1):
+		print( x[i], end= ' ' )
+	print( x[len(x)-1] )
 	line = input() 

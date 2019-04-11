@@ -14,6 +14,7 @@ struct TokenData {                                            // token¦r¦ê¡Btoke
 }; // TokenData
 
 struct TreeNode {
+  int a;
   TokenData token_data;
   bool isStart;
   bool isEnd;
@@ -22,33 +23,37 @@ struct TreeNode {
 }; // TreeNode
 
 class Pp {
+  private:
+    TreeNode * b;
   public:
-  int a;
-  Pp() {
-    a = 1;
-  } // Pp
+    int c;
+
+  Pp( int b ) {
+    cout << c <<"\n";
+    c = 1;
+  } // pp
+
+};
+
+class Dog: public Pp{
+
+
 };
 
 void test() {
-  try {
-    string a = "fff";
-    throw a;
-  } // try
-  catch( string a ) {
-   cout << "enter";
-  } // catch
 
 } // test()
 
 int main() {
   fstream inputfile;
-  try {
-    test();
-    cout << "ff1";
-  } //
-  catch( int i ) {
+  int a = 0, b = 0;
+  while ( a == 0 ) {
+    Pp ax( b );
+    cout << ax.c;
+    cin >> a;
+  } // while
 
-  } // catch
+
 
 } // main()
 
