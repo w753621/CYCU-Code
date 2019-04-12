@@ -28,6 +28,11 @@ struct LPforRP {
   int real_num;    // 每一個都要插入.nil
 }; // LPforRP
 
+struct SystemSymbol {
+  string symbol_name;
+  string symbol_type;
+}; // SystemSymbol
+
 struct StringErrorInfo {
   int line;
   int column;
@@ -76,7 +81,20 @@ struct NonListErrorInfo {
   TreeNode * nonlist_node;
 }; // NonListErrorInfo
 
-vector<DefineTable*> gDefineTable;
+struct FormatErrorInfo {
+  string format_fun_name;
+  TreeNode * format_error_node;
+}; // FormatErrorInfo
+
+struct LevelErrorInfo {
+  string level_function_name;
+}; // LevelErrorInfo
+
+struct ProcedureErrorInfo {
+  string procedure_error_name;
+}; // ProcedureErrorInfo
+
+vector<DefineTable> gDefineTable;
 
 class Scanner {         // 只負責切出GetToken()，跟PeekToken()，並回傳該Token字串。
   private:
@@ -887,17 +905,20 @@ class Parser {
 
 class Tree {
   private:
-    vector<TreeNode*> mAllFunPara;  // 所有存入的function & parameter，(存左括號連接點)。
-    SaveFunctionParameter mSave_Table;
-    TreeNode * mStart_ResultSExp;   // 開始的頭，此為結果。
-    TreeNode * mCur_ResultSExp;    //  現在進行到的位置，多Function判斷用。
-    bool mDoingQuote;          // 該sexp只有quote，計算多餘的第一個quote用。
-    int mCurrent_pos;         // 每一次呼叫都增加1，因為要用此來插入mAllFunPara。
+  vector<TreeNode*> mAllFunPara;  // 所有存入的function & parameter，(存左括號連接點)。
+  vector<SystemSymbol> mSystemSymbolTable;
+  SaveFunctionParameter mSave_Table;
+  TreeNode * mStart_ResultSExp;   // 開始的頭，此為結果。
+  TreeNode * mCur_ResultSExp;    //  現在進行到的位置，多Function判斷用。
+  bool mDoingQuote;          // 該sexp只有quote，計算多餘的第一個quote用。
+  int mCurrent_pos;         // 每一次呼叫都增加1，因為要用此來插入mAllFunPara。
+  int mLevel_num;
   // KEY:遇到QUOTE就是一個List，不然下一個Is_Start左邊接的就是function。
   TreeNode * EvaluateParameter( TreeNode * inputSExp ) {
     if ( inputSExp ) {
       if ( inputSExp -> isStart ) {  // 該層開始。他媽的要先收集左邊的function跟在右手邊的所有參數。
         // 儲存該function node isStart的位置。
+        mLevel_num++;
         ReSetmSave_Table();
         mAllFunPara.push_back( inputSExp );         // *要做修改(紀錄node)*
         mSave_Table.fun_Pos = mCurrent_pos;         // *要做修改(紀錄fun位置)*
@@ -953,7 +974,7 @@ class Tree {
 
     } // else if
     else if ( fun_type == "Bounding" ) {
-
+      EVAdefine( aSaveFunPara );
     } // else if
     else if ( fun_type == "Primitive predicates" ) {
 
@@ -988,7 +1009,7 @@ class Tree {
   TreeNode * DealParameterType( TreeNode * para_node, string & parameter_type ) {
     int define_pos = -1;
     if ( IsBoundSymbol( para_node -> token_data, define_pos ) ) {   // 先判斷式是不是SYMBOL
-      para_node = gDefineTable[define_pos] -> define_value;
+      para_node = gDefineTable[define_pos].define_value;
     } // if
     else {
       if ( para_node -> token_data.token_type == "SYMBOL" ) {
@@ -998,21 +1019,13 @@ class Tree {
       } // if
     } // else
 
-    if ( para_node -> token_data.token_type == "LEFT-PAREN" ) {   // 再次開始(遞迴)進入EvaluateParameter
+    if ( para_node -> isStart && define_pos == -1 ) {   // 再次開始(遞迴)進入EvaluateParameter
       para_node = EvaluateParameter( para_node );
     } // if
     // 開始進行參數篩選。
 
     if ( mDoingQuote ) {
       parameter_type = "DoingQuote";
-      if ( para_node -> token_data.token_type != "LEFT-PAREN" ) {
-        parameter_type = "Parameter";
-      } // if
-      else if ( para_node -> left -> token_data.token_type != "LEFT-PAREN" ) {
-        parameter_type = "Parameter";
-        para_node = para_node -> left;
-      } // else if
-
     } // if
 
     mDoingQuote = false;
@@ -1140,22 +1153,88 @@ class Tree {
 
   TreeNode * EVAquote( SaveFunctionParameter aSaveFunPara ) {
     // 回傳quote之夠的第一個參數。
+    mLevel_num--;
     int para_pos = aSaveFunPara.parameter_Pos.front();
-    if ( mCur_ResultSExp == NULL ) {
+    if (  mAllFunPara[para_pos] -> left -> token_data.token_type != "LEFT-PAREN" ) {
       aSaveFunPara.result_Node = mAllFunPara[para_pos] -> left;
     } // if
+    else if ( mCur_ResultSExp == NULL ) {
+      aSaveFunPara.result_Node = mAllFunPara[para_pos] -> left;
+      mDoingQuote = true;
+    } // else if
+    else if ( mCur_ResultSExp -> left == NULL && mCur_ResultSExp -> right == NULL ) {
+      aSaveFunPara.result_Node = mAllFunPara[para_pos] -> left;
+      mDoingQuote = true;
+    } // else if
     else if ( mCur_ResultSExp -> left == NULL ) {
       aSaveFunPara.result_Node = mAllFunPara[para_pos] -> left;
+      mDoingQuote = true;
     } // if
     else {
       aSaveFunPara.result_Node = mAllFunPara[para_pos];
+      mDoingQuote = true;
     } // else
 
-    mCur_ResultSExp = aSaveFunPara.result_Node;
-    mDoingQuote = true;
     return aSaveFunPara.result_Node;
   } // EVAQuote()
 
+  void EVAdefine( SaveFunctionParameter aSaveFunPara ) {
+    // 先檢查argument_num。
+    bool define_error = false;
+    int repeat_pos = -1, i = 0;
+    int para_1_pos = aSaveFunPara.parameter_Pos.front();
+    int para_2_pos = aSaveFunPara.parameter_Pos.back();
+    TreeNode * para_1_node = mAllFunPara[para_1_pos] -> left;
+    TreeNode * para_2_node = NULL;
+    string symbol_name = para_1_node -> token_data.token_name;
+    string symbol_type = para_1_node -> token_data.token_type;
+    if ( aSaveFunPara.argument_Num != 2 ) {                         // 先檢查參數數目。
+      define_error = true;
+    } // if
+    else if ( para_1_node -> token_data.token_type != "SYMBOL" ) {  // 再來檢查是不是系統的function。
+      define_error = true;
+    } // else if
+    else if ( IsSystemSymbol( symbol_name, symbol_type ) ) {
+      define_error = true;
+    } // else if
+    else {                                                          // 最後檢查其參數之間的關係。
+      while ( gDefineTable.size() > i ) {         // 先檢查有沒有被定義過。
+        if ( gDefineTable[i].define_name == symbol_name ) {
+          repeat_pos = i;
+        } // if
+
+        i++;
+      } // while
+
+      string parameter_type = "Parameter";
+      para_2_node = DealParameterType( mAllFunPara[para_2_pos] -> left, parameter_type );
+    } // else
+
+    if ( define_error ) {
+      FormatErrorInfo aFormatErrorInfo;
+      int fun_pos = aSaveFunPara.fun_Pos;
+      aFormatErrorInfo.format_error_node = mAllFunPara[fun_pos];
+      aFormatErrorInfo.format_fun_name = "DEFINE";
+      throw aFormatErrorInfo;
+    } // if
+    else {
+      if ( repeat_pos == -1 ) {
+        DefineTable aDefineTable;
+        aDefineTable.define_name = symbol_name;
+        aDefineTable.define_value = para_2_node;
+        gDefineTable.push_back( aDefineTable );
+      } // if
+      else {
+        gDefineTable[repeat_pos].define_value = para_2_node;
+      } // else
+
+      cout << symbol_name << " defined\n";
+      mPrint_SExp = false;
+    } // else
+
+  } // EVAdefine()
+
+  // 檢查 -> Level與Argument number
   void ArgumentNum_Check( int argument_num, string fun_name, string fun_type ) {
     bool check_get = false;
     if ( fun_name == "cons" ) {
@@ -1165,6 +1244,12 @@ class Tree {
       if ( argument_num >= 0 ) check_get = true;
     } // else if
     else if ( fun_name == "define" ) {
+      if ( mLevel_num != 1 ) {
+        LevelErrorInfo aLevelErrorInfo;
+        aLevelErrorInfo.level_function_name = "DEFINE";
+        throw aLevelErrorInfo;
+      } // if
+
       check_get = true; // define有另外error的形式。 (一) define的level error (二) define的format error。
     } // else if
     else if ( fun_type == "Part accessors" ) {
@@ -1205,7 +1290,30 @@ class Tree {
     } // else if
     else if ( fun_type == "QUOTE" ) {
       check_get = true;
-    } // ELSE IF
+    } // else if
+    else if ( fun_type == "Special level" ) {
+      if ( mLevel_num == 1 ) {
+        if ( argument_num == 0 ) { // 實作 clean-environment
+          check_get = true;
+          mPrint_SExp = false;
+          vector<DefineTable> newTable;
+          gDefineTable = newTable; // 初始化DefineTable。
+          cout << "environment cleaned" << "\n";
+        } // if
+      } // if
+      else {        // level超過了，輸出level-error
+        LevelErrorInfo aLevelErrorInfo;
+        if ( fun_name == "exit" ) {
+          aLevelErrorInfo.level_function_name = "EXIT";
+        } // if
+        else {
+          aLevelErrorInfo.level_function_name = "CLEAN-ENVIRONMENT";
+        } // else
+
+        throw aLevelErrorInfo;
+      } // else
+
+    } // else if
 
     // throw argument_num error
     if ( check_get == false ) {  // 還有其他error的可能性。
@@ -1216,56 +1324,19 @@ class Tree {
 
   } // ArgumentNum_Check()
 
-  // (一)檢查有無此function  (二) 設定要進入此function的參數
+  // (一)檢查 -> 有無此function  (二) 設定要進入此function的參數
   void Function_Check( TreeNode * fun_node, string & fun_name, string & fun_type ) {
     int define_pos = -1;  // 如果symbol有被定義的話，其值會被更改。
     if ( IsBoundSymbol( fun_node -> token_data, define_pos ) ) {  // 有被定義，不是的話代表是non
-      fun_name = gDefineTable[define_pos] -> define_value -> token_data.token_name;
+      fun_name = gDefineTable[define_pos].define_value -> token_data.token_name;
     } // if
     else {   // 沒被定義但有機會是以下的類型，不是的話1.symbol是unbound，2.不是symbol是nonfunction。
       fun_name = fun_node -> token_data.token_name;
     } // else
 
-    if ( fun_name == "cons" || fun_name == "list" ) {
-      fun_type = "Constructors";
+    if ( IsSystemSymbol( fun_name, fun_type ) ) {
+      // 找到fun_name並設定fun_type，返回。
     } // if
-    else if ( fun_name == "\'" || fun_name == "quote" ) {
-      fun_type = "QUOTE";
-    } // else if
-    else if ( fun_name == "define" ) {
-      fun_type = "Bounding";
-    } // else if
-    else if ( fun_name == "car" || fun_name == "cdr" ) {
-      fun_type = "Part accessors";
-    } // else if
-    else if ( fun_name == "atom?" || fun_name == "pair?" || fun_name == "list?" || fun_name == "null?"
-              || fun_name == "integer?" || fun_name == "real?" || fun_name == "number?"
-              || fun_name == "string?" || fun_name == "boolean" || fun_name == "symbol" ) {
-      fun_type = "Primitive predicates";
-    } // else if
-    else if ( fun_name == "+" || fun_name == "-" || fun_name == "*" || fun_name == "/" ) {
-      fun_type = "Number arithmetic";
-    } // else if
-    else if ( fun_name == "not" || fun_name == "and" || fun_name == "or" ) {
-      fun_type = "Logical";
-    } // else if
-    else if ( fun_name == ">" || fun_name == ">=" || fun_name == "<" || fun_name == "<="
-              || fun_name == "=" ) {
-      fun_type = "Number compare";
-    } // else if
-    else if ( fun_name == "string-append" || fun_name == "string>?" || fun_name == "string<?"
-              || fun_name == "string=?" ) {
-      fun_type = "String compare";
-    } // else if
-    else if ( fun_name == "eqv" || fun_name == "equal" ) {
-      fun_type = "Eqivalence tester";
-    } // else if
-    else if ( fun_name == "begin" ) {
-      fun_type = "Sequencing";
-    } // else if
-    else if ( fun_name == "if" || fun_name == "cond" ) {
-      fun_type = "Conditionals";
-    } // else if
     else {
       if ( define_pos == -1 ) { // 不是定義，如果是symbol就non-bound，如果不是symbol就nonfunction
         if ( fun_node -> token_data.token_type == "SYMBOL" ) {
@@ -1282,7 +1353,7 @@ class Tree {
       } // if
       else  {
         NonFunctionErrorInfo aNonFunctionErrorInfo;
-        aNonFunctionErrorInfo.nonfun_name = gDefineTable[define_pos] -> define_value;
+        aNonFunctionErrorInfo.nonfun_name = gDefineTable[define_pos].define_value;
         throw aNonFunctionErrorInfo;
       } // else
 
@@ -1290,6 +1361,7 @@ class Tree {
 
   } // Function_Check()
 
+  // 檢查 -> 結束的node一定要是nil。
   void NonList_Chcek( TreeNode * cur_node, SaveFunctionParameter aSaveFunPara ) {
     int fun_pos = aSaveFunPara.fun_Pos;
     if ( cur_node -> token_data.token_type != "NIL" ) {  // throw nonlist(最後是.結束的)。
@@ -1304,7 +1376,7 @@ class Tree {
     if ( tokendata.token_type == "SYMBOL" ) {
       int i = 0;
       while ( gDefineTable.size() > i ) {
-        if ( gDefineTable[i] -> define_name == tokendata.token_name ) {
+        if ( gDefineTable[i].define_name == tokendata.token_name ) {
           define_pos = i;
           return true;
         } // if
@@ -1363,17 +1435,34 @@ class Tree {
     mSave_Table.result_Node = NULL;
   } // ReSetmSave_Table()
 
-
   public:
-  Tree() {
+  bool mPrint_SExp;
+  Tree( vector<SystemSymbol> aSystemSymbolTable ) {
     mDoingQuote = false;
     mCurrent_pos = 0;
     mStart_ResultSExp = NULL;
     mCur_ResultSExp = NULL;
+    mLevel_num = 0;
+    mPrint_SExp = true;
     vector<TreeNode*> aAllFunPara;
     mAllFunPara = aAllFunPara;
+    mSystemSymbolTable = aSystemSymbolTable;
     ReSetmSave_Table();
   } // Tree()
+
+  bool IsSystemSymbol( string & fun_name, string & fun_type ) {
+    int i = 0;
+    while ( mSystemSymbolTable.size() > i ) {
+      if ( mSystemSymbolTable[i].symbol_name == fun_name ) {
+        fun_type = mSystemSymbolTable[i].symbol_type;
+        return true;
+      } // if
+
+      i++;
+    } // while
+
+    return false;
+  } // IsSystemSymbol()
 
   // 印成list-like formate
   void PrintSExp( TreeNode * aTreeRoot, string & printed, bool & firstsexp ) {
@@ -1455,10 +1544,33 @@ class Tree {
   } // Preorder()
 
   // catch Error跟進入運算，並返回運算完的reusltSExp給main()
-  TreeNode * EvaluateSExp( TreeNode * inputSExp, bool & printSExp ) {
+  TreeNode * EvaluateSExp( TreeNode * inputSExp ) {
     try {
       if ( inputSExp -> left == NULL && inputSExp -> right == NULL ) {
-        //  有可能會有unbound的情形。
+        int define_pos = -1;
+        if ( IsBoundSymbol( inputSExp -> token_data, define_pos ) ) {   // 先判斷式是不是SYMBOL
+          mStart_ResultSExp = gDefineTable[define_pos].define_value;
+        } // if
+        else {
+          if ( inputSExp -> token_data.token_type == "SYMBOL" ) {
+            string none = "";
+            if ( IsSystemSymbol( inputSExp -> token_data.token_name, none ) ) {
+              ProcedureErrorInfo aProcedureErrorInfo;
+              aProcedureErrorInfo.procedure_error_name = inputSExp -> token_data.token_name;
+              throw aProcedureErrorInfo;
+            } // if
+            else {
+              UnboundSymbolErrorInfo aUnboundSymbolErrorInfo;
+              aUnboundSymbolErrorInfo.symbol_name = inputSExp -> token_data.token_name;
+              throw aUnboundSymbolErrorInfo;
+            } // else
+
+          } // if
+          else {
+            mStart_ResultSExp = inputSExp;
+          } // else
+
+        } // else
 
       } // if
       else {
@@ -1472,21 +1584,132 @@ class Tree {
     } // catch
     catch( UnboundSymbolErrorInfo aUnboundSymbolErrorInfo ) {
       cout << "ERROR (unbound symbol) : " << aUnboundSymbolErrorInfo.symbol_name << "\n";
-      printSExp = false;
+      mPrint_SExp = false;
     } // catch
     catch( AgumentNumberErrorInfo aAgumentNumberErrorInfo ) {
       cout << "ERROR (incorrect number of arguments) : " << aAgumentNumberErrorInfo.fun_name << "\n";
-      printSExp = false;
+      mPrint_SExp = false;
     } // catch
     catch( NonListErrorInfo aNonListErrorInfo ) {
       cout << "ERROR (non-list) : ";
-       mStart_ResultSExp = aNonListErrorInfo.nonlist_node;
+      mStart_ResultSExp = aNonListErrorInfo.nonlist_node;
+    } // catch
+    catch( LevelErrorInfo aLevelErrorInfo ) {
+      cout << "ERROR (level of " << aLevelErrorInfo.level_function_name << ")\n";
+      mPrint_SExp = false;
+    } // catch
+    catch( FormatErrorInfo aFormatErrorInfo ) {
+      cout << "ERROR (" << aFormatErrorInfo.format_fun_name << " format) : ";
+      mStart_ResultSExp = aFormatErrorInfo.format_error_node;
+    } // catch
+    catch( ProcedureErrorInfo aProcedureErrorInfo ) {
+      cout << "#<procedure " << aProcedureErrorInfo.procedure_error_name << ">\n";
+      mPrint_SExp = false;
     } // catch
 
     return mStart_ResultSExp;
   } // EvaluateSExp()
 
 }; // Tree
+
+vector<SystemSymbol> BuildSystemSymbol() {
+  vector<SystemSymbol> aSystemSymbolTable;
+  SystemSymbol aSystemSymbol;
+  aSystemSymbol.symbol_name = "cons";
+  aSystemSymbol.symbol_type = "Constructors";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "list";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "\'";
+  aSystemSymbol.symbol_type = "QUOTE";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "quote";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "define";
+  aSystemSymbol.symbol_type = "Bounding";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "car";
+  aSystemSymbol.symbol_type = "Part accessors";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "cdr";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "atom?";
+  aSystemSymbol.symbol_type = "Primitive predicates";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "pair?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "list?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "null?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "integer?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "real?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "number?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "string?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "boolean?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "symbol?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "+";
+  aSystemSymbol.symbol_type = "Number arithmetic";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "-";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "*";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "/";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "not";
+  aSystemSymbol.symbol_type = "Logical";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "and";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "or";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = ">";
+  aSystemSymbol.symbol_type = "Number compare";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = ">=";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "<";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "<=";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "=";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "string-append";
+  aSystemSymbol.symbol_type = "String compare";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "string>?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "string<?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "string=?";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "eqv";
+  aSystemSymbol.symbol_type = "Eqivalence tester";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "equal";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "begin";
+  aSystemSymbol.symbol_type = "Sequencing";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "if";
+  aSystemSymbol.symbol_type = "Conditionals";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "cond";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "exit";
+  aSystemSymbol.symbol_type = "Special level";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "clean-environment";
+  aSystemSymbolTable.push_back( aSystemSymbol );
+  return aSystemSymbolTable;
+} // BuildSystemSymbol()
 
 // Scanner與Parser互相溝通的function，等Paser處理完並無錯之後就開始建Tree。
 TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit  ) {
@@ -1535,6 +1758,8 @@ int main() {
     cout << "ERROR (no more input) : END-OF-FILE encountered";
   } // if
 
+  vector<SystemSymbol> systemSymbolTable;
+  systemSymbolTable = BuildSystemSymbol();
   while ( !finished ) {
     TreeNode * inputSExp;               // 一次處理一個SExp，一個SExp代表一個樹的結構。
     inputSExp = new TreeNode;
@@ -1547,14 +1772,13 @@ int main() {
       // aTree.Preorder( aTreeRoot );
       // Scanner與Paser互相溝通的function，等Paser處理完並無錯之後就開始建Tree。 user讀到 (exit)，設定finished，結束這次測試檔。
       if ( !finished ) {
-        Tree aTree;
+        Tree aTree( systemSymbolTable );
         TreeNode * resultSExp;            // 一次處理一個SExp，一個SExp代表一個樹的結構。
-        bool printSExp = true;
-        resultSExp = aTree.EvaluateSExp( inputSExp, printSExp );
+        resultSExp = aTree.EvaluateSExp( inputSExp );
         bool firstsexp = true;
         string printed = "";
         // aTree.Preorder( resultSExp );
-        if ( printSExp ) aTree.PrintSExp( resultSExp, printed, firstsexp );
+        if ( aTree.mPrint_SExp ) aTree.PrintSExp( resultSExp, printed, firstsexp );
       } // if
 
     } // try
