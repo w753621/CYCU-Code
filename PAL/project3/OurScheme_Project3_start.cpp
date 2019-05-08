@@ -1038,7 +1038,10 @@ class Tree {
       return EVAcar_cdr( aSaveFunPara );
     } // else if
     else if ( fun_type == "Bounding" ) {
-      EVAdefine( aSaveFunPara );
+      // 沮材把计ㄓ耞璶秈definefunction
+      int fun_pos = aSaveFunPara.parameter_Pos.front();
+      if ( IsList( mAllFunPara[fun_pos] -> left ) ) EVAdefine_Type2( aSaveFunPara );
+      else EVAdefine_Type1( aSaveFunPara );
     } // else if
     else if ( fun_type == "Primitive predicates" ) {
       return EVAprimitive_predicates( aSaveFunPara );
@@ -1359,7 +1362,7 @@ class Tree {
     return aSaveFunPara.result_Node;
   } // EVAquote()
 
-  void EVAdefine( SaveFunctionParameter aSaveFunPara ) {
+  void EVAdefine_Type1( SaveFunctionParameter aSaveFunPara ) {
     // 浪琩argument_num
     bool define_error = false;
     int repeat_pos = -1, i = 0;
@@ -1397,11 +1400,9 @@ class Tree {
     } // else
 
     if ( define_error ) {
-      FormatErrorInfo aFormatErrorInfo;
-      int fun_pos = aSaveFunPara.fun_Pos;
-      aFormatErrorInfo.format_error_node = mAllFunPara[fun_pos];
-      aFormatErrorInfo.format_fun_name = "DEFINE";
-      throw aFormatErrorInfo;
+      Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
+      aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
+      throw aFormat_OnlyStringErrorInfo;
     } // if
     else {
       if ( repeat_pos == -1 ) {
@@ -1432,7 +1433,12 @@ class Tree {
       mPrint_SExp = false;
     } // else
 
-  } // EVAdefine()
+  } // EVAdefine_Type1()
+
+  void EVAdefine_Type2( SaveFunctionParameter aSaveFunPara ) {
+
+
+  } // EVAdefine_Type2()
 
   TreeNode * EVAcar_cdr( SaveFunctionParameter aSaveFunPara ) {
     string parameter_type = "Parameter";
@@ -2134,6 +2140,7 @@ class Tree {
     string parameter_type = "Parameter";
     UserFunctionInfo aUserFunctionInfo;
     // 眖璶盿把计も(浪琩)
+
     while ( aSaveFunPara.argument_Num > i ) {
       int para_pos = aSaveFunPara.parameter_Pos.front();
       real_para_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
@@ -2180,7 +2187,7 @@ class Tree {
           throw aFormat_OnlyStringErrorInfo;
         } // if
         else {
-          newDefineFunction.fun_argument.push_back( para1_node );
+
         } // else
 
       } // if
@@ -2207,7 +2214,7 @@ class Tree {
       if ( mLevel_num > 1 ) {
         if ( argument_check != mLevel_argument[mLevel_num-2] ) {
           AgumentNumberErrorInfo aAgumentNumberErrorInfo;
-          aAgumentNumberErrorInfo.fun_name = aSaveFunPara.fun_Name;
+          aAgumentNumberErrorInfo.fun_name = "lambda expression";
           throw aAgumentNumberErrorInfo;
         } // if
 
@@ -2218,7 +2225,7 @@ class Tree {
       parameter_type = "Parameter";
       while ( aSaveFunPara.argument_Num > i ) {
         int para_many_pos = aSaveFunPara.parameter_Pos.front();
-        para_many_node = mAllFunPara[para_many_pos];
+        para_many_node = mAllFunPara[para_many_pos] -> left;
         newDefineFunction.eva_function.push_back( para_many_node );
         aSaveFunPara.parameter_Pos.pop();
         parameter_type = "Parameter";
@@ -2650,6 +2657,18 @@ class Tree {
     return false;
   } // IsSystemSymbol()
 
+  void RemoveBlankFunction() {
+    int i = 0;
+    while ( gDefineFunction.size() > i ) {
+      if ( gDefineFunction[i].user_fun_name == "" ) {
+        gDefineFunction.erase( gDefineFunction.begin() + i );
+      } // if
+
+      i++;
+    } // while
+
+  } // RemoveBlankFunction()
+
   // Θlist-like formate
   void PrintSExp( TreeNode * aTreeRoot, string & printed, bool & firstsexp ) {
     if ( aTreeRoot ) {
@@ -2773,6 +2792,7 @@ class Tree {
       else {
         mStart_ResultSExp = EvaluateParameter( inputSExp );  // 璸衡把计璸衡function
         new_one = mSystemSymbolTable;
+        RemoveBlankFunction();
       } // else
 
     } // try
