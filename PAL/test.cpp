@@ -35,10 +35,6 @@ class Pp {
 
 };
 
-class Dog: public Pp{
-
-
-};
 
 void test() {
 
@@ -46,14 +42,9 @@ void test() {
 
 int main() {
   fstream inputfile;
-  int a = 0, b = 0;
-  while ( a == 0 ) {
-    Pp ax( b );
-    cout << ax.c;
-    cin >> a;
-  } // while
-
-
+  string a = "az";
+  string b = "aw";
+  if ( a > b ) cout << "ff";
 
 } // main()
 

@@ -1,0 +1,21 @@
+( list '(3 30 40 ) '( 3 30 40 ) ( car ( car (cons '(3 30 40 ) '( 3 30 40 ) ) ) ) )
+
+(define hello "\"CYCU ICE\"" . nil)
+(define there "Number One!")
+(cons hello there)
+(define hello (cons '(1 2 . (3)) hello))
+
+(define hello (cons '(1 2 . (3)) 5))
+(cons '(1 2  . ( 5 6 ) ) 4)
+(list 3 
+        '(4 5) 
+        6 
+        '(7 8))
+
+
+(define hello (cons 3 5) )
+(define 'hello (cons '(1 2 . (3)) hello)
+)
+
+
+(and 'how #f that )

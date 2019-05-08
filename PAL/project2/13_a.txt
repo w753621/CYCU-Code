@@ -1,0 +1,398 @@
+> "=============== Problem 12 viewable case ================="
+
+> environment cleaned
+
+> #<procedure cons>
+
+> #<procedure car>
+
+> myCons defined
+
+> myCar defined
+
+> #<procedure cons>
+
+> ( #<procedure cons>
+  .
+  #<procedure car>
+)
+
+> ( 3
+  4
+  myCar
+)
+
+> ( ( 10
+  )
+  .
+  20
+)
+
+> ( 20
+  myCons
+)
+
+> ( ( 1
+    #<procedure ->
+    3
+    #<procedure +>
+  )
+  ( 25
+    .
+    #<procedure car>
+  )
+)
+
+> ERROR (incorrect number of arguments) : cons
+
+> >? defined
+
+> <? defined
+
+> =? defined
+
+> first defined
+
+> second defined
+
+> third defined
+
+> cc defined
+
+> "Bad"
+
+> "OK."
+
+> ERROR (unbound symbol) : CDR
+
+> ( ( 1
+    2
+    3
+  )
+  ( 25
+    .
+    35
+  )
+)
+
+> ERROR (incorrect number of arguments) : begin
+
+> ( it
+)
+
+> ( Whether
+  or
+  not
+  to
+  be
+  ?
+)
+
+> ( is
+  the
+  question
+  !
+)
+
+> ERROR (cdr with incorrect argument type) : "Hi,"
+
+> ( "Wake up!"
+)
+
+> sun-shine defined
+
+> money defined
+
+> ( 40
+  shines
+  bright
+)
+
+> a defined
+
+> d defined
+
+> b defined
+
+> #<procedure />
+
+> 20
+
+> 90
+
+> 20
+
+> ERROR (attempt to apply non-function) : 3
+
+> ERROR (attempt to apply non-function) : 20
+
+> "Best"
+
+> a defined
+
+> 3240
+
+> ERROR (unbound symbol) : Look!
+
+> ( ( OK?
+    Correct?
+  )
+  ( OK?
+    Correct?
+  )
+)
+
+> opr-list defined
+
+> ( #<procedure cons>
+  #<procedure pair?>
+  #<procedure atom?>
+)
+
+> ERROR (attempt to apply non-function) : ( #<procedure cons>
+  #<procedure pair?>
+  #<procedure atom?>
+)
+
+> nil
+
+> #t
+
+> ERROR (unbound symbol) : ab
+
+> a defined
+
+> "=============== Problem 13 viewable case ================="
+
+> environment cleaned
+
+> ERROR (unbound symbol) : a
+
+> operators defined
+
+> -212
+
+> listOfNum defined
+
+> listOfStr defined
+
+> listOfSym defined
+
+> ( What?
+  "When?"
+  30.100
+)
+
+> ( 30.100
+  "When?"
+  What?
+)
+
+> abc defined
+
+> ( ( What?
+    "When?"
+    30.100
+  )
+  ( 30.100
+    "When?"
+    What?
+  )
+)
+
+> ( What?
+  ( 30.100
+    "When?"
+    What?
+  )
+)
+
+> ERROR (car with incorrect argument type) : What?
+
+> efg defined
+
+> ( ( What?
+    "When?"
+    30.100
+  )
+  30.100
+  "When?"
+  What?
+)
+
+> ( ( What?
+    "When?"
+    30.100
+  )
+  ( 30.100
+    "When?"
+    What?
+  )
+)
+
+> ++ defined
+
+> -- defined
+
+> 60.544
+
+> 45.544
+
+> ERROR (+ with incorrect argument type) : "Where?"
+
+> ERROR (- with incorrect argument type) : What?
+
+> ERROR (incorrect number of arguments) : if
+
+> ERROR (no return value) : ( if
+  ( string>?
+    ( car
+      listOfStr
+    )
+    ( car
+      ( cdr
+        listOfStr
+      )
+    )
+  )
+  ( car
+    listOfStr
+  )
+)
+
+> ERROR (car with incorrect argument type) : 30.100
+
+> ERROR (car with incorrect argument type) : "It's a plane!"
+
+> ERROR (incorrect number of arguments) : car
+
+> ERROR (incorrect number of arguments) : cdr
+
+> What? defined
+
+> When? defined
+
+> ( What?
+  When?
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> ( ( What?
+    10.125
+  )
+  When?
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> ( What?
+  When?
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> listOfSym defined
+
+> ( ( What?
+    10.125
+  )
+  When?
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> ( ( What?
+    10.125
+  )
+  ( When?
+    20.319
+  )
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> ( ( What?
+    10.125
+  )
+  When?
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> listOfSym defined
+
+> ( ( What?
+    10.125
+  )
+  ( When?
+    20.319
+  )
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> listOfSym defined
+
+> ( What?
+  When?
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> listOfSym defined
+
+> ( ( What?
+    10.125
+  )
+  When?
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> listOfSym defined
+
+> ( ( What?
+    10.125
+  )
+  ( When?
+    20.319
+  )
+  Where?
+  Who?
+  How?
+  Why?
+  HowCome?
+)
+
+> ERROR (incorrect number of arguments) : exit
+
+> 
+Thanks for using OurScheme!<<

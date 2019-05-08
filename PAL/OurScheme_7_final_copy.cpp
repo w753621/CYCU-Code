@@ -821,7 +821,7 @@ class Parser {
         newnode -> isStart = true;
       } // if
       else {
-        if ( mTranslated_token_vector[i].token_type == "LEFT-PAREN" 
+        if ( mTranslated_token_vector[i].token_type == "LEFT-PAREN"
              && mTranslated_token_vector[i-1].token_type != "DOT" ) {
           newnode -> isStart = true;
         } // if

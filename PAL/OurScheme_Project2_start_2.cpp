@@ -5,6 +5,7 @@
 # include <stack>
 # include <queue>
 # include <iomanip>  // ±±¨î¿é¥X¤p¼Æ¦ì¼Æ
+# include <sstream>
 # include <iostream>
 using namespace std;
 static int utestNum = -1;
@@ -90,9 +91,19 @@ struct LevelErrorInfo {
   string level_function_name;
 }; // LevelErrorInfo
 
-struct ProcedureErrorInfo {
-  string procedure_error_name;
-}; // ProcedureErrorInfo
+struct ArgumentTypeErrorInfo {
+  string function_name;
+  TreeNode * argumentype_error_node;
+}; // ArgumentTypeErrorInfo
+
+struct DivisionByZero {
+  string error_name;
+}; // DivisionByZero
+
+struct NoReturnValueErrorInfo {
+  TreeNode * no_return_error_node;
+}; // NoReturnValueErrorInfo
+
 
 vector<DefineTable> gDefineTable;
 
@@ -410,6 +421,7 @@ class Scanner {         // ¥u­t³d¤Á¥XGetToken()¡A¸òPeekToken()¡A¨Ã¦^¶Ç¸ÓToken¦r¦
       if ( cin.peek() == EOF ) {
         throw -1;
       } // if
+
       cin.get( sexpchar );
       TraceTokenLineColumn( sexpchar );
     } // while
@@ -734,7 +746,7 @@ class Parser {
             mTranslated_token_vector.push_back( token_QUOTE_data );
             realnumber++;
             anumber++;
-          } // else
+          } // else if
 
         } // if
         else if ( mAccurate_token_vector[anumber].token_type == "QUOTE" ) {
@@ -787,6 +799,7 @@ class Parser {
           if ( mAccurate_token_vector[anumber+1].token_type == "QUOTE" ) {
             dotforquote.push( mTranslated_token_vector.size() );
           } // if
+
           anumber++;
         } // else if
         else {                   // ¦h¼W¥[¤@¹ï.(
@@ -966,39 +979,37 @@ class Tree {
       if ( fun_name == "cons" ) return EVAcons( aSaveFunPara );
       else return EVAlist( aSaveFunPara );
     } // if
-    else if ( fun_type == "QUOTE" ) {
+    else if ( fun_type == "Quote" ) {
       // ­npassone quote¡A¦^¶Ç°Ñ¼Æ¡C
       return EVAquote( aSaveFunPara );
     } // else if
     else if ( fun_type == "Part accessors" ) {
-
+      return EVAcar_cdr( aSaveFunPara );
     } // else if
     else if ( fun_type == "Bounding" ) {
       EVAdefine( aSaveFunPara );
     } // else if
     else if ( fun_type == "Primitive predicates" ) {
-
+      return EVAprimitive_predicates( aSaveFunPara );
     } // else if
     else if ( fun_type == "Number arithmetic" ) {
-
+      return EVAnumber_arithmetic( aSaveFunPara );
     } // else if
     else if ( fun_type == "Logical" ) {
-
+      return EVAlogical( aSaveFunPara );
     } // else if
-    else if ( fun_type == "Number compare" ) {
-
-    } // else if
-    else if ( fun_type == "String compare" ) {
-
+    else if ( fun_type == "Number compare" || fun_type == "String compare" ) {
+      return EVAnumber_string_compare( aSaveFunPara );
     } // else if
     else if ( fun_type == "Eqivalence tester" ) {
-
+      return EVAequal_eqv( aSaveFunPara );
     } // else if
     else if ( fun_type == "Sequencing" ) {
-
+      return EVAbegin( aSaveFunPara );
     } // else if
     else if ( fun_type == "Conditionals" ) {
-
+      if ( fun_name == "if" ) return EVAif( aSaveFunPara );
+      else return EVAcond( aSaveFunPara );
     } // else if
 
     return NULL;
@@ -1007,19 +1018,69 @@ class Tree {
   // °Ñ¼Æ¦³¥|ºØªº¥i¯à¡A1.function 2.quote(ÅÜºØ)°Ñ¼Æ  3.sybol(ÅÜºØdefine)°Ñ¼Æ 4.¤@¯ë°Ñ¼Æ
   // ¦pªG¬Ofunction·|¦^¶Çfalse¡A¶}©l¶i¤J·sªºfunction­pºâ¡C(·í«e«á­±ªº°Ñ¼Æ¼È°±­pºâ)¡C
   TreeNode * DealParameterType( TreeNode * para_node, string & parameter_type ) {
-    int define_pos = -1;
-    if ( IsBoundSymbol( para_node -> token_data, define_pos ) ) {   // ¥ý§PÂ_¦¡¬O¤£¬OSYMBOL
-      para_node = gDefineTable[define_pos].define_value;
+    int define_pos = -1; // ¥ý§PÂ_¦¡¬O¤£¬OSYMBOL
+    bool isExpect_else = false;
+    if ( para_node -> token_data.token_name == "else" ) isExpect_else = true;
+    if ( IsBoundSymbol( para_node -> token_data, define_pos ) ) {
+      if ( parameter_type == "Define" || parameter_type == "Eq" ) {
+        para_node = gDefineTable[define_pos].define_value;
+        if ( parameter_type == "Define" ) parameter_type = "NoCreateMemory";
+        if ( parameter_type == "Eq" ) parameter_type = "Eqv";
+      } // if
+      else if ( parameter_type == "Cond-LastElse" && isExpect_else ) {
+        return para_node;
+      } // else if
+      else {
+        TreeNode * new_eval_tree = NULL;
+        para_node = Return_NewEval_Tree( gDefineTable[define_pos].define_value, new_eval_tree );
+        string name = para_node -> token_data.token_name;
+        string type = para_node -> token_data.token_type;
+        if ( IsSystemSymbol( name, type ) ) {
+          TreeNode * procedure_node = NULL;
+          procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
+          para_node = procedure_node;
+        } // if
+
+      } // else
+
     } // if
     else {
-      if ( para_node -> token_data.token_type == "SYMBOL" ) {
+      string name = para_node -> token_data.token_name;
+      string type = para_node -> token_data.token_type;
+      // cout << para_node -> token_data.token_name << para_node -> token_data.token_type;
+      if ( IsSystemSymbol( name, type ) ) {
+        if ( parameter_type != "Define" ) {
+          TreeNode * procedure_node = NULL;
+          procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
+          para_node = procedure_node;
+        } // if
+        else {
+          // cout << para_node -> token_data.token_name << para_node -> token_data.token_type;
+        } // else
+
+      } // if
+      else if ( parameter_type == "Cond-LastElse" ) {
+        if ( para_node -> token_data.token_type == "SYMBOL"
+             && para_node -> token_data.token_name == "else" ) {
+          return para_node;
+        } // if
+        else if ( para_node -> token_data.token_type == "SYMBOL" ) {
+          UnboundSymbolErrorInfo aUnboundSymbolErrorInfo;
+          aUnboundSymbolErrorInfo.symbol_name = para_node -> token_data.token_name;
+          throw aUnboundSymbolErrorInfo;
+        } // else if
+
+      } // else if
+      else if ( para_node -> token_data.token_type == "SYMBOL" ) {
         UnboundSymbolErrorInfo aUnboundSymbolErrorInfo;
         aUnboundSymbolErrorInfo.symbol_name = para_node -> token_data.token_name;
         throw aUnboundSymbolErrorInfo;
-      } // if
+      } // else if
+
     } // else
 
-    if ( para_node -> isStart && define_pos == -1 ) {   // ¦A¦¸¶}©l(»¼°j)¶i¤JEvaluateParameter
+    //  ¦pªGnodeªº°Ñ¼Æ¬O¶}©l¥B¬Ounbound¤~¥i¥H¶i¤J·sªºfunction¹Bºâ¡C
+    if ( para_node -> isStart && define_pos == -1 ) {
       para_node = EvaluateParameter( para_node );
     } // if
     // ¶}©l¶i¦æ°Ñ¼Æ¿z¿ï¡C
@@ -1053,18 +1114,36 @@ class Tree {
       } // if
       else {
         if ( parameter_type == "Parameter" ) {
-          if ( real_para -> token_data.token_type == "LEFT-PAREN" ) {
+          if ( real_para -> token_data.token_type == "LEFT-PAREN"
+               && real_para -> left && real_para -> left -> token_data.token_type != "QUOTE" ) {
             real_para -> isStart = false;
             real_para -> isEnd = false;
           } // if
+          else if ( real_para -> token_data.token_type == "LEFT-PAREN"
+                    && real_para -> left && real_para -> left -> token_data.token_type == "QUOTE" ) {
+            TreeNode * connect = ReSetLinkResult();
+            connect -> isStart = false;
+            connect -> isEnd = true;
+            TreeNode * nil = NULL;
+            nil = new TreeNode;
+            nil -> left = NULL;
+            nil -> right = NULL;
+            nil -> isStart = false;
+            nil -> isEnd = true;
+            nil -> token_data.token_name = "nil";
+            nil -> token_data.token_type = "NIL";
+            connect -> left = real_para;
+            connect -> right = nil;
+            real_para = connect;
+          } // else if
           else {
             real_para -> isStart = false;
             real_para -> isEnd = true;
           } // else
-        } // if
-        else if ( parameter_type == "DoingQuote" ){
 
-          if ( real_para -> left -> left -> token_data.token_type != "QUOTE" ){ //ÅÜ¦¨¦P¶¥¼h¡A¦]¥ª¬A¸¹«e¬°.
+        } // if
+        else if ( parameter_type == "DoingQuote" ) {
+          if ( real_para -> left -> left -> token_data.token_type != "QUOTE" ) { // ÅÜ¦¨¦P¶¥¼h¡A¦]¥ª¬A¸¹«e¬°.
             real_para = real_para -> left;
             real_para -> isStart = false;
             real_para -> isEnd = false;
@@ -1110,6 +1189,8 @@ class Tree {
     while ( aSaveFunPara.argument_Num > i ) {
       int para_pos = aSaveFunPara.parameter_Pos.front();
       TreeNode * real_para = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+      Preorder( real_para );
+      cout << "w\n";
       if ( i == 0 ) {
         cur_node -> left = real_para;
         if ( aSaveFunPara.argument_Num == 1 ) cur_node -> right = mAllFunPara[para_pos] -> right;
@@ -1176,7 +1257,7 @@ class Tree {
     } // else
 
     return aSaveFunPara.result_Node;
-  } // EVAQuote()
+  } // EVAquote()
 
   void EVAdefine( SaveFunctionParameter aSaveFunPara ) {
     // ¥ýÀË¬dargument_num¡C
@@ -1188,6 +1269,7 @@ class Tree {
     TreeNode * para_2_node = NULL;
     string symbol_name = para_1_node -> token_data.token_name;
     string symbol_type = para_1_node -> token_data.token_type;
+    string parameter_type = "Define";
     if ( aSaveFunPara.argument_Num != 2 ) {                         // ¥ýÀË¬d°Ñ¼Æ¼Æ¥Ø¡C
       define_error = true;
     } // if
@@ -1206,8 +1288,7 @@ class Tree {
         i++;
       } // while
 
-      string parameter_type = "Parameter";
-      para_2_node = DealParameterType( mAllFunPara[para_2_pos] -> left, parameter_type );
+      para_2_node = DealParameterType( mAllFunPara[para_2_pos] -> left, parameter_type ); // ¬Ý¦³¨S¦³³Q©w¸q¹L
     } // else
 
     if ( define_error ) {
@@ -1221,11 +1302,21 @@ class Tree {
       if ( repeat_pos == -1 ) {
         DefineTable aDefineTable;
         aDefineTable.define_name = symbol_name;
-        aDefineTable.define_value = para_2_node;
+        if ( parameter_type == "NoCreateMemory" ) {
+          aDefineTable.define_value = para_2_node;
+        } // if
+        else {
+          TreeNode * new_define_node = NULL;
+          new_define_node = Build_Define_Tree( para_2_node, new_define_node );
+          aDefineTable.define_value = new_define_node;
+        } // else
+
         gDefineTable.push_back( aDefineTable );
       } // if
       else {
-        gDefineTable[repeat_pos].define_value = para_2_node;
+        TreeNode * new_define_node = NULL;
+        new_define_node = Build_Define_Tree( para_2_node, new_define_node );
+        gDefineTable[repeat_pos].define_value = new_define_node;
       } // else
 
       cout << symbol_name << " defined\n";
@@ -1233,6 +1324,731 @@ class Tree {
     } // else
 
   } // EVAdefine()
+
+  TreeNode * EVAcar_cdr( SaveFunctionParameter aSaveFunPara ) {
+    string parameter_type = "Parameter";
+    int para_pos = aSaveFunPara.parameter_Pos.front();
+    TreeNode * part_access = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+
+    // ÀË¬d¨äpart¦³µL¿ù»~¡A¿ù»~´Nthrow incorrect argument typeªºerror¡C
+    if ( part_access -> token_data.token_type != "LEFT-PAREN" ) {
+      ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+      aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+      aArgumentTypeErrorInfo.argumentype_error_node = part_access;
+      throw aArgumentTypeErrorInfo;
+    } // if
+    else if ( part_access -> left -> token_data.token_type == "QUOTE" ) {
+      ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+      aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+      part_access -> token_data.token_name = "\'";
+      aArgumentTypeErrorInfo.argumentype_error_node = part_access;
+      throw aArgumentTypeErrorInfo;
+    } // else if
+
+    TreeNode * left_part = part_access;
+    TreeNode * right_part = part_access;
+    // ¶}©l°µ­pºâ¡A½T»{¬O§_§ä¨ì¤F¸Ó¼hªº°Ñ¼Æ¤~¯à¹Bºâ¡C
+    // (¤@) ¥ý½T©w¼h¼Æ¡A¦A½T©w°Ñ¼Æ¡C
+    if ( aSaveFunPara.fun_Name == "car" ) {
+      left_part = left_part -> left;
+      aSaveFunPara.result_Node = left_part;
+    } // if
+    else {
+      // Preorder( right_part );
+      right_part = right_part -> right;
+      // cout << right_part -> token_data.token_name << right_part -> token_data.token_type << "2\n";
+      if ( right_part -> isEnd ) {  // ¹J¨ì¸ÓÂI¬Onil©ÎisEnd¡C
+        right_part -> isStart = false;
+        right_part -> isEnd = false;
+      } // if
+      else {
+        right_part -> isStart = true;
+        right_part -> isEnd = false;
+      } // else
+
+      aSaveFunPara.result_Node = right_part;
+    } // else
+
+    return aSaveFunPara.result_Node;
+  } // EVAcar_cdr()
+
+  TreeNode * EVAprimitive_predicates( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * true_or_false = NULL;
+    true_or_false = new TreeNode;
+    true_or_false -> isStart = false;
+    true_or_false -> isEnd = false;
+    true_or_false -> left = NULL;
+    true_or_false -> right = NULL;
+    TokenData token_true_data;
+    token_true_data.token_name = "#t";
+    token_true_data.token_type = "T";
+    TokenData token_false_data;
+    token_false_data.token_name = "nil";
+    token_false_data.token_type = "NIL";
+    string parameter_type = "Parameter";
+    int para_pos = aSaveFunPara.parameter_Pos.front();
+    TreeNode * real_para = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+    if ( aSaveFunPara.fun_Name == "atom?" ) {
+      if ( IsAtom( real_para -> token_data ) ) true_or_false -> token_data = token_true_data;
+      else true_or_false -> token_data = token_false_data;
+    } // if
+    else if ( aSaveFunPara.fun_Name == "pair?" ) {
+      if ( real_para -> token_data.token_type == "LEFT-PAREN" ) {
+        if ( real_para -> left -> token_data.token_type == "QUOTE" ) {
+          true_or_false -> token_data = token_false_data;
+        } // if
+        else true_or_false -> token_data = token_true_data;
+      } // if
+
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "list?" ) {
+      if ( real_para -> token_data.token_type == "LEFT-PAREN" ) {
+        if ( real_para -> left -> token_data.token_type != "LEFT-PAREN" // ±´³X²Ä¤@¼hªº³Ì«á¬O¤£¬Onon-list¡C
+             || real_para -> left -> token_data.token_type != "QUOTE" ) {
+          while ( real_para -> isEnd == false ) {
+            real_para = real_para -> right;
+          } // while
+
+          if ( real_para -> token_data.token_type != "NIL" ) true_or_false -> token_data = token_false_data;
+          else true_or_false -> token_data = token_true_data;
+        } // if
+        else true_or_false -> token_data = token_true_data;
+
+      } // if
+
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "null?" ) {
+      if ( real_para -> token_data.token_type == "NIL" ) true_or_false -> token_data = token_true_data;
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "integer?" ) {
+      if ( real_para -> token_data.token_type == "INT" ) true_or_false -> token_data = token_true_data;
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "real?" || aSaveFunPara.fun_Name == "number?" ) {
+      if ( real_para -> token_data.token_type == "INT"
+           || real_para -> token_data.token_type == "FLOAT" ) true_or_false -> token_data = token_true_data;
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "string?" ) {
+      if ( real_para -> token_data.token_type == "STRING" ) true_or_false -> token_data = token_true_data;
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "boolean?" ) {
+      if ( real_para -> token_data.token_type == "T"
+           || real_para -> token_data.token_type == "NIL" ) true_or_false -> token_data = token_true_data;
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "symbol?" ) {
+      if ( real_para -> token_data.token_type == "SYMBOL" ) true_or_false -> token_data = token_true_data;
+      else true_or_false -> token_data = token_false_data;
+    } // else if
+
+    aSaveFunPara.result_Node = true_or_false;
+    return aSaveFunPara.result_Node;
+  } // EVAprimitive_predicates()
+
+  TreeNode * EVAnumber_arithmetic( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * number_eva = NULL;
+    number_eva = new TreeNode;
+    number_eva -> left = NULL;
+    number_eva -> right = NULL;
+    number_eva -> isEnd = false;
+    number_eva -> isStart = false;
+    TokenData token_true_data;
+    token_true_data.token_name = "";
+    token_true_data.token_type = "";
+    string parameter_type = "Parameter";
+    int i = 0;
+    float eva1_float = 0, eva2_float = 0;
+    bool alwaysInt = true;
+    int para1_pos = aSaveFunPara.parameter_Pos.front();
+    TreeNode * number_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+    aSaveFunPara.parameter_Pos.pop();
+    i++;
+    if ( number_1_node -> token_data.token_type == "INT"
+         || number_1_node -> token_data.token_type == "FLOAT" ) {
+      if ( number_1_node -> token_data.token_type == "FLOAT" ) {
+        eva1_float = atof( number_1_node -> token_data.token_name.c_str() );
+        alwaysInt = false;
+      } // if
+      else {
+        eva1_float = atoi( number_1_node -> token_data.token_name.c_str() );
+      } // else
+
+    } // if
+    else {
+      ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+      aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+      aArgumentTypeErrorInfo.argumentype_error_node = number_1_node;
+      throw aArgumentTypeErrorInfo;
+    } // else
+
+    TreeNode * number_2_node = NULL;
+    while ( aSaveFunPara.argument_Num > i ) {
+      parameter_type = "Parameter";
+      int para2_pos = aSaveFunPara.parameter_Pos.front();
+      number_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+      aSaveFunPara.parameter_Pos.pop();
+      i++;
+      if ( number_2_node -> token_data.token_type == "INT"
+           || number_2_node -> token_data.token_type == "FLOAT" ) {
+        if ( number_2_node -> token_data.token_type == "FLOAT" ) {
+          eva2_float = atof( number_2_node -> token_data.token_name.c_str() );
+          alwaysInt = false;
+        } // if
+        else {
+          eva2_float = atoi( number_2_node -> token_data.token_name.c_str() );
+        } // else
+
+      } // if
+      else {
+        ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+        aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+        aArgumentTypeErrorInfo.argumentype_error_node = number_2_node;
+        throw aArgumentTypeErrorInfo;
+      } // else
+
+      // ½T»{¨âªÌ¼Æ¦r¬Ò¥¿½T¤§«á¡AÂà¦¨¥i¥H¹Bºâªº®æ¦¡(int¡Bfloat)¡C
+      if ( aSaveFunPara.fun_Name == "+" ) {
+        eva1_float = eva1_float + eva2_float;
+      } // if
+      else if ( aSaveFunPara.fun_Name == "-" ) {
+        eva1_float = eva1_float - eva2_float;
+      } // else if
+      else if ( aSaveFunPara.fun_Name == "*" ) {
+        eva1_float = eva1_float * eva2_float;
+      } // else if
+      else {  // ³Ñ¡i°£¡j
+        if ( eva2_float == 0 ) {
+          DivisionByZero aDivisionByZero;
+          aDivisionByZero.error_name = "ERROR (division by zero) : /";
+          throw aDivisionByZero;
+        } // if
+        else eva1_float = eva1_float / eva2_float;
+      } // else
+
+    } // while
+
+    if ( alwaysInt ) {
+      stringstream ss;
+      eva1_float = ( int ) eva1_float;
+      ss << eva1_float;
+      ss >> number_eva -> token_data.token_name;
+      number_eva -> token_data.token_type = "INT";
+    } // if
+    else {
+      stringstream ss;
+      ss << eva1_float;
+      ss >> number_eva -> token_data.token_name;
+      number_eva -> token_data.token_type = "FLOAT";
+    } // else
+
+    aSaveFunPara.result_Node = number_eva;
+    return aSaveFunPara.result_Node;
+  } // EVAnumber_arithmetic()
+
+  TreeNode * EVAnumber_string_compare( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * true_or_false = NULL;
+    true_or_false = new TreeNode;
+    true_or_false -> isStart = false;
+    true_or_false -> isEnd = false;
+    true_or_false -> left = NULL;
+    true_or_false -> right = NULL;
+    TokenData token_true_data;
+    token_true_data.token_name = "#t";
+    token_true_data.token_type = "T";
+    TokenData token_false_data;
+    token_false_data.token_name = "nil";
+    token_false_data.token_type = "NIL";
+    int i = 0;
+    float eva1_float = 0, eva2_float = 0;
+    string eva1_string = "", eva2_string = "";
+    string parameter_type = "Parameter";
+    if ( aSaveFunPara.fun_Type == "Number compare" ) {
+      int para1_pos = aSaveFunPara.parameter_Pos.front();
+      TreeNode * number_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+      aSaveFunPara.parameter_Pos.pop();
+      i++;
+      if ( number_1_node -> token_data.token_type == "INT"
+           || number_1_node -> token_data.token_type == "FLOAT" ) {
+        eva1_float = atof( number_1_node -> token_data.token_name.c_str() );
+      } // if
+      else {
+        ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+        aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+        aArgumentTypeErrorInfo.argumentype_error_node = number_1_node;
+        throw aArgumentTypeErrorInfo;
+      } // else
+
+      bool isUnFinish = true;
+      TreeNode * number_2_node = NULL;
+      while ( aSaveFunPara.argument_Num > i ) {
+        parameter_type = "Parameter";
+        int para2_pos = aSaveFunPara.parameter_Pos.front();
+        number_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+        aSaveFunPara.parameter_Pos.pop();
+        i++;
+        if ( number_2_node -> token_data.token_type == "INT"
+             || number_2_node -> token_data.token_type == "FLOAT" ) {
+          eva2_float = atof( number_2_node -> token_data.token_name.c_str() );
+        } // if
+        else {
+          ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+          aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+          aArgumentTypeErrorInfo.argumentype_error_node = number_2_node;
+          throw aArgumentTypeErrorInfo;
+        } // else
+
+        if ( aSaveFunPara.fun_Name == ">" && isUnFinish ) {
+          if ( eva1_float <= eva2_float ) isUnFinish = false;
+        } // if
+        else if ( aSaveFunPara.fun_Name == ">=" && isUnFinish ) {
+          if ( eva1_float < eva2_float ) isUnFinish = false;
+        } // else if
+        else if ( aSaveFunPara.fun_Name == "<" && isUnFinish ) {
+          if ( eva1_float >= eva2_float ) isUnFinish = false;
+        } // else if
+        else if ( aSaveFunPara.fun_Name == "<=" && isUnFinish ) {
+          if ( eva1_float > eva2_float ) isUnFinish = false;
+        } // else if
+        else if ( aSaveFunPara.fun_Name == "=" && isUnFinish ) {
+          if ( eva1_float != eva2_float ) isUnFinish = false;
+        } // else if
+
+        eva1_float = eva2_float;
+      } // while
+
+      if ( isUnFinish ) {
+        true_or_false -> token_data = token_true_data;
+        aSaveFunPara.result_Node = true_or_false;
+      } // if
+      else {
+        true_or_false -> token_data = token_false_data;
+        aSaveFunPara.result_Node = true_or_false;
+      } // else
+
+    } // if
+    else {  // fun_Type = "String compare"
+      int para1_pos = aSaveFunPara.parameter_Pos.front();
+      TreeNode * string_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+      aSaveFunPara.parameter_Pos.pop();
+      i++;
+      if ( string_1_node -> token_data.token_type == "STRING" ) {
+        eva1_string = string_1_node -> token_data.token_name;
+      } // if
+      else {
+        ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+        aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+        aArgumentTypeErrorInfo.argumentype_error_node = string_1_node;
+        throw aArgumentTypeErrorInfo;
+      } // else
+
+      bool isUnFinish = true;
+      TreeNode * string_2_node = NULL;
+      while ( aSaveFunPara.argument_Num > i ) {
+        parameter_type = "Parameter";
+        int para2_pos = aSaveFunPara.parameter_Pos.front();
+        string_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+        aSaveFunPara.parameter_Pos.pop();
+        i++;
+        if ( string_2_node -> token_data.token_type == "STRING" ) {
+          eva2_string = string_2_node -> token_data.token_name;
+        } // if
+        else {
+          ArgumentTypeErrorInfo aArgumentTypeErrorInfo;
+          aArgumentTypeErrorInfo.function_name = aSaveFunPara.fun_Name;
+          aArgumentTypeErrorInfo.argumentype_error_node = string_2_node;
+          throw aArgumentTypeErrorInfo;
+        } // else
+
+        if ( aSaveFunPara.fun_Name == "string-append" && isUnFinish ) {
+          eva1_string.erase( eva1_string.size() - 1, 1 );
+          eva2_string.erase( 0, 1 );
+          eva1_string = eva1_string + eva2_string;
+        } // if
+        else if ( aSaveFunPara.fun_Name == "string>?" && isUnFinish ) {
+          if ( eva1_string <= eva2_string ) isUnFinish = false;
+          eva1_string = eva2_string;
+        } // else if
+        else if ( aSaveFunPara.fun_Name == "string<?" && isUnFinish ) {
+          if ( eva1_string >= eva2_string ) isUnFinish = false;
+          eva1_string = eva2_string;
+        } // else if
+        else if ( aSaveFunPara.fun_Name == "string=?" && isUnFinish ) {
+          if ( eva1_string != eva2_string ) isUnFinish = false;
+        } // else if
+
+      } // while
+
+      if ( aSaveFunPara.fun_Name == "string-append" ) {
+        TokenData token_string_data;
+        token_string_data.token_name = eva1_string;
+        token_string_data.token_type = "STRING";
+        true_or_false -> token_data = token_string_data;
+        aSaveFunPara.result_Node = true_or_false;
+      } // if
+      else if ( isUnFinish ) {
+        true_or_false -> token_data = token_true_data;
+        aSaveFunPara.result_Node = true_or_false;
+      } // else if
+      else {
+        true_or_false -> token_data = token_false_data;
+        aSaveFunPara.result_Node = true_or_false;
+      } // else
+
+    } // else
+
+    return aSaveFunPara.result_Node;
+  } // EVAnumber_string_compare()
+
+  TreeNode * EVAlogical( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * logical_node = NULL;
+    logical_node = new TreeNode;
+    logical_node -> isStart = false;
+    logical_node -> isEnd = false;
+    logical_node -> left = NULL;
+    logical_node -> right = NULL;
+    TreeNode * result_node = NULL;
+    TreeNode * para_node = NULL;
+    TokenData token_true_data;
+    token_true_data.token_name = "#t";
+    token_true_data.token_type = "T";
+    TokenData token_false_data;
+    token_false_data.token_name = "nil";
+    token_false_data.token_type = "NIL";
+    int i = 0;
+    bool alwaysTrue = true, one_or_result = true;
+    string parameter_type = "Parameter";
+    while ( aSaveFunPara.argument_Num > i ) {
+      parameter_type = "Parameter";
+      int para_pos = aSaveFunPara.parameter_Pos.front();
+      para_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+      aSaveFunPara.parameter_Pos.pop();
+      i++;
+
+      if ( para_node -> token_data.token_type == "NIL" ) {
+        if ( alwaysTrue && aSaveFunPara.fun_Name == "and" ) {
+          result_node = para_node;
+        } // if
+
+        alwaysTrue = false;
+      } // if
+      else {
+        if ( one_or_result && aSaveFunPara.fun_Name == "or" ) {
+          result_node = para_node;
+          one_or_result = false;
+        } // if
+        else if ( alwaysTrue && aSaveFunPara.fun_Name == "and" ) {
+          result_node = para_node;
+        } // else if
+
+      } // else
+
+
+    } // while
+
+    if ( aSaveFunPara.fun_Name == "not" ) {
+      if ( alwaysTrue ) {
+        logical_node -> token_data = token_false_data;
+      } // if
+      else {
+        logical_node -> token_data = token_true_data;
+      } // else
+
+      aSaveFunPara.result_Node = logical_node;
+    } // if
+    else if ( aSaveFunPara.fun_Name == "and" ) {
+      aSaveFunPara.result_Node = result_node;
+    } // else if
+    else if ( aSaveFunPara.fun_Name == "or" ) {
+      if ( one_or_result ) {
+        logical_node -> token_data = token_false_data;
+        aSaveFunPara.result_Node = logical_node;
+      } // if
+      else {
+        aSaveFunPara.result_Node = result_node;
+      } // else
+
+    } // else if
+
+    return aSaveFunPara.result_Node;
+  } // EVAlogical()
+
+  TreeNode * EVAequal_eqv( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * equal_eqv_node = NULL;
+    equal_eqv_node = new TreeNode;
+    equal_eqv_node -> isStart = false;
+    equal_eqv_node -> isEnd = false;
+    equal_eqv_node -> left = NULL;
+    equal_eqv_node -> right = NULL;
+    TokenData token_true_data;
+    token_true_data.token_name = "#t";
+    token_true_data.token_type = "T";
+    TokenData token_false_data;
+    token_false_data.token_name = "nil";
+    token_false_data.token_type = "NIL";
+    string parameter_type_1 = "Eq";
+    int para1_pos = aSaveFunPara.parameter_Pos.front();
+    TreeNode * para1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type_1 );
+    aSaveFunPara.parameter_Pos.pop();
+    string parameter_type_2 = "Eq";
+    int para2_pos = aSaveFunPara.parameter_Pos.front();
+    TreeNode * para2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type_2 );
+    aSaveFunPara.parameter_Pos.pop();
+    if ( aSaveFunPara.fun_Name == "equal?" ) {
+      if ( Compare_TwoTree_Data( para1_node, para2_node ) ) {
+        equal_eqv_node -> token_data = token_true_data;
+      } // if
+      else {
+        equal_eqv_node -> token_data = token_false_data;
+      } // else
+
+    } // if
+    else {
+      if ( IsAtom( para1_node -> token_data ) && IsAtom( para2_node -> token_data ) ) {
+        if ( para1_node -> token_data.token_name == para2_node -> token_data.token_name
+             && ( para1_node -> token_data.token_type != "STRING"
+                  && para2_node -> token_data.token_type != "STRING" ) ) {
+          equal_eqv_node -> token_data = token_true_data;
+        } // if
+        else {
+          equal_eqv_node -> token_data = token_false_data;
+        } // else
+
+      } // if
+      else {  // ¦pªG¨âªÌ¦³¤@ªÌ¤£¬OAtom¡C
+        if ( para1_node == para2_node ) {
+          equal_eqv_node -> token_data = token_true_data;
+        } // if
+        else {
+          equal_eqv_node -> token_data = token_false_data;
+        } // else
+
+      } // else
+
+    } // else
+
+    aSaveFunPara.result_Node = equal_eqv_node;
+    return aSaveFunPara.result_Node;
+  } // EVAequal_eqv()
+
+  TreeNode * EVAif( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * result_node = NULL;
+    string parameter_type = "Parameter";
+    int para1_pos = aSaveFunPara.parameter_Pos.front();
+    TreeNode * left_or_right_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+    aSaveFunPara.parameter_Pos.pop();
+    bool isNIL = false;
+    if ( left_or_right_node -> token_data.token_type == "NIL" ) { // true
+      isNIL = true;
+    } // if
+
+    // ½T©w¬°²Ä¤@­Ó°Ñ¼Æªº«¬§O¤§«á¡A¶}©l¶i§ð!!
+    if ( isNIL ) {
+      if ( aSaveFunPara.argument_Num == 2 ) {
+        NoReturnValueErrorInfo aNoReturnValueErrorInfo;
+        aNoReturnValueErrorInfo.no_return_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+        throw aNoReturnValueErrorInfo;
+      } // if
+      else {
+        // ¶}©l³B²z²Ä¤T­Ó°Ñ¼Æ
+        aSaveFunPara.parameter_Pos.pop(); // (¸õ¹L²Ä¤G­Ó°Ñ¼Æ)
+        int para3_pos = aSaveFunPara.parameter_Pos.front();
+        result_node = DealParameterType( mAllFunPara[para3_pos] -> left, parameter_type );
+        aSaveFunPara.parameter_Pos.pop();
+      } // else
+
+    } // if
+    else {
+    // ¶}©l³B²ztrue¡A¶i§ð°Õ(¸õ¹L²Ä¤T­Ó°Ñ¼Æ¡A)
+      int para2_pos = aSaveFunPara.parameter_Pos.front();
+      result_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+      aSaveFunPara.parameter_Pos.pop();
+    } // else
+
+
+    aSaveFunPara.result_Node = result_node;
+    return aSaveFunPara.result_Node;
+  } // EVAif()
+
+  TreeNode * EVAcond( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * result_node = NULL;
+    string parameter_type = "Cond";
+    int i = 0;
+    queue<TreeNode*> real_para;
+    FormatErrorInfo aFormatErrorInfo;
+    aFormatErrorInfo.format_fun_name = "COND";
+    aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+    // (¤@) ¥ý½T»{¨ä°Ñ¼Æ®æ¦¡¬O¥¿½Tªº¡A¦A©¹¤U¶i¦æ¹Bºâ(¥ý»`¶°¡A¦A½T»{¯u°°)¡C
+    // (¤G) ¹Bºâ®É¡A¦pªGnil¨S±o¨ì°Ñ¼Æ¡A´N¦^¶Çno_return_error¡C
+    // (¤T) ¦Ó¦A¶i¦æ¹Bºâ®É¡A²Ä¤@­Ó­Èªºsymnol¨Sbound©Î¬Osystem ´Nµoerror¡C
+    if ( aSaveFunPara.argument_Num == 0 ) {
+      throw aFormatErrorInfo;
+    } // if
+
+    while ( aSaveFunPara.argument_Num > i ) { // ²Ä¤@¼h³£­n¬O()¦s¦bªº¡Aatom quoteª½±µgg¡C
+      int para_pos = aSaveFunPara.parameter_Pos.front();
+      if ( mAllFunPara[para_pos] -> left
+           && mAllFunPara[para_pos] -> left -> token_data.token_type == "LEFT-PAREN" ) {
+        if ( mAllFunPara[para_pos] -> left -> left
+             && mAllFunPara[para_pos] -> left -> left -> token_data.token_type != "QUOTE" ) {
+          real_para.push( mAllFunPara[para_pos] -> left );
+        } // if
+        else {
+          throw aFormatErrorInfo;
+        } // else
+
+      } // if
+      else {
+        throw aFormatErrorInfo;
+      } // else
+
+      aSaveFunPara.parameter_Pos.pop();
+      i++;
+    } // while
+
+    queue<TreeNode*> check_dot_queue = real_para;
+    i = 0;
+    while ( aSaveFunPara.argument_Num > i ) {
+      TreeNode * check_dot = check_dot_queue.front();
+      while ( check_dot -> isEnd == false ) {
+        check_dot = check_dot -> right;
+      } // while
+
+      if ( check_dot -> token_data.token_type != "NIL" ) {
+        throw aFormatErrorInfo;
+      } // if
+
+      check_dot_queue.pop();
+      i++;
+    } // while
+
+    TreeNode * fake_node = NULL;
+    i = 0;
+    bool alwaysTrue = false;
+    while ( aSaveFunPara.argument_Num > i && !alwaysTrue ) {
+      fake_node = real_para.front();
+      int start_eva = 0;
+      bool thisTrue = false, falseNoRead = false;
+      if ( aSaveFunPara.argument_Num == i + 1 ) parameter_type = "Cond-LastElse";
+      while ( fake_node -> isEnd == false && !falseNoRead ) {
+        TreeNode * real_one_node = DealParameterType( fake_node -> left, parameter_type );
+        if ( start_eva == 0 ) { // ¥u¦³·í²Ä¤@­Ó°Ñ¼Æ­pºâªº®É­Ô¡A¤~¥i¥H¨M©w¦¹()ªº¨«¦V
+          if ( real_one_node -> token_data.token_type != "NIL" ) { // ¦pªG¤£¬O§_©wªº¸Ü¡C
+            thisTrue = true;
+          } // if
+          else {
+            falseNoRead = true;
+          } // else
+
+          string procdeure_name = real_one_node -> token_data.token_name;
+          string procdeure_type = real_one_node -> token_data.token_type;
+          if ( parameter_type == "Cond-LastElse" && real_one_node -> token_data.token_name == "else" ) {
+
+          } // if
+          else if ( !alwaysTrue && thisTrue ) {
+            result_node = real_one_node;
+          } // else if
+
+        } // if
+        else {
+          if ( !alwaysTrue && thisTrue ) result_node = real_one_node;
+        } // else
+
+        fake_node = fake_node -> right;
+        parameter_type = "Cond";
+        start_eva++;
+      } // while
+
+      if ( thisTrue ) alwaysTrue = true;
+      real_para.pop();
+      i++;
+    } // while
+
+    if ( result_node == NULL ) {
+      NoReturnValueErrorInfo aNoReturnValueErrorInfo;
+      aNoReturnValueErrorInfo.no_return_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+      throw aNoReturnValueErrorInfo;
+    } // if
+    else {
+      aSaveFunPara.result_Node = result_node;
+    } // else
+
+    return aSaveFunPara.result_Node;
+  } // EVAcond()
+
+  TreeNode * EVAbegin( SaveFunctionParameter aSaveFunPara ) {
+    TreeNode * the_last_node = NULL;
+    int i = 0;
+    while ( aSaveFunPara.argument_Num > i ) {
+      string parameter_type = "Parameter";
+      int para_pos = aSaveFunPara.parameter_Pos.front();
+      the_last_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+      aSaveFunPara.parameter_Pos.pop();
+      i++;
+    } // while
+
+    aSaveFunPara.result_Node = the_last_node;
+    return aSaveFunPara.result_Node;
+  } // EVAbegin()
+
+  TreeNode * CreateProcedureNode( string system_name ) {
+    TreeNode * procedure_error_name = NULL;
+    procedure_error_name = new TreeNode;
+    procedure_error_name -> left = NULL;
+    procedure_error_name -> right = NULL;
+    procedure_error_name -> isStart = false;
+    procedure_error_name -> isEnd = false;
+    string token_name = "#<procedure " + system_name + ">";
+    procedure_error_name -> token_data.token_name = token_name;
+    procedure_error_name -> token_data.token_type = "PROCEDURE";
+    return procedure_error_name;
+  } // CreateProcedureNode()
+
+  bool Compare_TwoTree_Data( TreeNode * tree1, TreeNode * tree2 ) {
+    if ( tree1 == NULL && tree2 == NULL ) return true;
+    if ( tree1 != NULL && tree2 != NULL
+         && tree1 -> token_data.token_name == tree2 -> token_data.token_name
+         && Compare_TwoTree_Data( tree1 -> left, tree2 -> left )
+         && Compare_TwoTree_Data( tree1 -> right, tree2 -> right ) ) {
+      return true;
+    } // if
+
+    return false;
+  } // Compare_TwoTree_Data()
+
+  TreeNode * Build_Define_Tree( TreeNode * define_tree, TreeNode * new_define_tree ) {
+    // ·s«Ø¤@­Ó·sªºdefineªÅ¶¡¦bgDefineTable¤¤¡C
+    if ( define_tree ) {
+      new_define_tree = new TreeNode;
+      new_define_tree -> token_data = define_tree -> token_data;
+      new_define_tree -> isStart = define_tree -> isStart;
+      new_define_tree -> isEnd = define_tree -> isEnd;
+      new_define_tree -> left = Build_Define_Tree( define_tree -> left, new_define_tree );
+      new_define_tree -> right = Build_Define_Tree( define_tree -> right, new_define_tree );
+      return new_define_tree;
+    } // if
+
+    return NULL;
+  } // Build_Define_Tree()
+
+  TreeNode * Return_NewEval_Tree( TreeNode * defined_tree, TreeNode * new_eval_tree ) {
+    // return gDefineTable¤¤ªº¤@­Ó·sªºdefineªÅ¶¡µ¹­pºâ¥Îªº¡C
+    if ( defined_tree ) {
+      new_eval_tree = new TreeNode;
+      new_eval_tree -> token_data =  defined_tree -> token_data;
+      new_eval_tree -> isStart = defined_tree -> isStart;
+      new_eval_tree -> isEnd = defined_tree -> isEnd;
+      new_eval_tree -> left = Return_NewEval_Tree( defined_tree -> left, new_eval_tree );
+      new_eval_tree -> right = Return_NewEval_Tree( defined_tree -> right, new_eval_tree );
+      return new_eval_tree;
+    } // if
+
+    return NULL;
+  } // Return_NewEval_Tree()
 
   // ÀË¬d -> Level»PArgument number
   void ArgumentNum_Check( int argument_num, string fun_name, string fun_type ) {
@@ -1281,14 +2097,14 @@ class Tree {
     } // else if
     else if ( fun_type == "Conditionals" ) {
       if ( fun_name == "cond" ) {
-        if ( argument_num >= 1 ) check_get = true;
+        check_get = true;
       } // if
       else {
         if ( argument_num == 2 || argument_num == 3 ) check_get = true;
       } // else
 
     } // else if
-    else if ( fun_type == "QUOTE" ) {
+    else if ( fun_type == "Quote" ) {
       check_get = true;
     } // else if
     else if ( fun_type == "Special level" ) {
@@ -1326,19 +2142,32 @@ class Tree {
 
   // (¤@)ÀË¬d -> ¦³µL¦¹function  (¤G) ³]©w­n¶i¤J¦¹functionªº°Ñ¼Æ
   void Function_Check( TreeNode * fun_node, string & fun_name, string & fun_type ) {
+    // cout << fun_type << "\n";
     int define_pos = -1;  // ¦pªGsymbol¦³³Q©w¸qªº¸Ü¡A¨ä­È·|³Q§ó§ï¡C
     if ( IsBoundSymbol( fun_node -> token_data, define_pos ) ) {  // ¦³³Q©w¸q¡A¤£¬Oªº¸Ü¥Nªí¬Onon
       fun_name = gDefineTable[define_pos].define_value -> token_data.token_name;
+      fun_type = gDefineTable[define_pos].define_value -> token_data.token_type;
     } // if
     else {   // ¨S³Q©w¸q¦ý¦³¾÷·|¬O¥H¤UªºÃþ«¬¡A¤£¬Oªº¸Ü1.symbol¬Ounbound¡A2.¤£¬Osymbol¬Ononfunction¡C
       fun_name = fun_node -> token_data.token_name;
+      fun_type = fun_node -> token_data.token_type;
     } // else
 
+    // cout << fun_name << " " << fun_type;
     if ( IsSystemSymbol( fun_name, fun_type ) ) {
       // §ä¨ìfun_name¨Ã³]©wfun_type¡Aªð¦^¡C
     } // if
     else {
-      if ( define_pos == -1 ) { // ¤£¬O©w¸q¡A¦pªG¬Osymbol´Nnon-bound¡A¦pªG¤£¬Osymbol´Nnonfunction
+      // cout << fun_type << "\n";
+      if ( fun_type == "PROCEDURE" ) {
+        string change_to_function = "";
+        int start = 12;
+        int end = fun_name.size() - 13;   // 13
+        change_to_function = change_to_function.assign( fun_name, start, end );
+        fun_name = change_to_function;
+        IsSystemSymbol( fun_name, fun_type );
+      } // if
+      else if ( define_pos == -1 ) {  // ¤£¬O©w¸q¡A¦pªG¬Osymbol´Nnon-bound¡A¦pªG¤£¬Osymbol´Nnonfunction
         if ( fun_node -> token_data.token_type == "SYMBOL" ) {
           UnboundSymbolErrorInfo aUnboundSymbolErrorInfo;
           aUnboundSymbolErrorInfo.symbol_name = fun_node -> token_data.token_name;
@@ -1350,7 +2179,7 @@ class Tree {
           throw aNonFunctionErrorInfo;
         } // else
 
-      } // if
+      } // else if
       else  {
         NonFunctionErrorInfo aNonFunctionErrorInfo;
         aNonFunctionErrorInfo.nonfun_name = gDefineTable[define_pos].define_value;
@@ -1387,7 +2216,21 @@ class Tree {
     } // if
 
     return false;
-  } // IsUnBoundSymbol()
+  } // IsBoundSymbol()
+
+  bool IsAtom( TokenData token_IsAtom ) {
+    if ( token_IsAtom.token_type == "PROCEDURE" ) {
+      return true;
+    } // if
+    else if ( token_IsAtom.token_type == "SYMBOL" || token_IsAtom.token_type == "INT"
+              || token_IsAtom.token_type == "FLOAT" || token_IsAtom.token_type == "STRING"
+              || token_IsAtom.token_type == "NIL" || token_IsAtom.token_type == "LEFT-PAREN RIGHT-PAREN"
+              || token_IsAtom.token_type == "T" ) {
+      return true;
+    } // else if
+
+    return false;
+  } // IsAtom()
 
   // ¤@¶}©l³]©wSTART_ResutltªºÀY¡A
   void SetStartResult() {
@@ -1549,15 +2392,26 @@ class Tree {
       if ( inputSExp -> left == NULL && inputSExp -> right == NULL ) {
         int define_pos = -1;
         if ( IsBoundSymbol( inputSExp -> token_data, define_pos ) ) {   // ¥ý§PÂ_¦¡¬O¤£¬OSYMBOL
-          mStart_ResultSExp = gDefineTable[define_pos].define_value;
+          TreeNode * new_eval_tree = NULL;
+          new_eval_tree = Return_NewEval_Tree( gDefineTable[define_pos].define_value, new_eval_tree );
+          string name = new_eval_tree -> token_data.token_name;
+          string type = new_eval_tree -> token_data.token_type;
+          if ( IsSystemSymbol( name, type ) ) {
+            TreeNode * procedure_node = NULL;
+            procedure_node = CreateProcedureNode( new_eval_tree -> token_data.token_name );
+            mStart_ResultSExp = procedure_node;
+          } // if
+          else {
+            mStart_ResultSExp = new_eval_tree;
+          } // else
+
         } // if
         else {
           if ( inputSExp -> token_data.token_type == "SYMBOL" ) {
-            string none = "";
-            if ( IsSystemSymbol( inputSExp -> token_data.token_name, none ) ) {
-              ProcedureErrorInfo aProcedureErrorInfo;
-              aProcedureErrorInfo.procedure_error_name = inputSExp -> token_data.token_name;
-              throw aProcedureErrorInfo;
+            if ( IsSystemSymbol( inputSExp -> token_data.token_name, inputSExp -> token_data.token_type ) ) {
+              TreeNode * procedure_node = NULL;
+              procedure_node = CreateProcedureNode( inputSExp -> token_data.token_name );
+              mStart_ResultSExp = procedure_node;
             } // if
             else {
               UnboundSymbolErrorInfo aUnboundSymbolErrorInfo;
@@ -1602,9 +2456,17 @@ class Tree {
       cout << "ERROR (" << aFormatErrorInfo.format_fun_name << " format) : ";
       mStart_ResultSExp = aFormatErrorInfo.format_error_node;
     } // catch
-    catch( ProcedureErrorInfo aProcedureErrorInfo ) {
-      cout << "#<procedure " << aProcedureErrorInfo.procedure_error_name << ">\n";
+    catch( ArgumentTypeErrorInfo aArgumentTypeErrorInfo ) {
+      cout << "ERROR (" << aArgumentTypeErrorInfo.function_name << " with incorrect argument type) : ";
+      mStart_ResultSExp = aArgumentTypeErrorInfo.argumentype_error_node;
+    } // catch
+    catch( DivisionByZero aDivisionByZero ) {
+      cout << aDivisionByZero.error_name << "\n";
       mPrint_SExp = false;
+    } // catch
+    catch( NoReturnValueErrorInfo aNoReturnValueErrorInfo ) {
+      cout << "ERROR (no return value) : ";
+      mStart_ResultSExp = aNoReturnValueErrorInfo.no_return_error_node;
     } // catch
 
     return mStart_ResultSExp;
@@ -1621,7 +2483,7 @@ vector<SystemSymbol> BuildSystemSymbol() {
   aSystemSymbol.symbol_name = "list";
   aSystemSymbolTable.push_back( aSystemSymbol );
   aSystemSymbol.symbol_name = "\'";
-  aSystemSymbol.symbol_type = "QUOTE";
+  aSystemSymbol.symbol_type = "Quote";
   aSystemSymbolTable.push_back( aSystemSymbol );
   aSystemSymbol.symbol_name = "quote";
   aSystemSymbolTable.push_back( aSystemSymbol );
@@ -1690,10 +2552,10 @@ vector<SystemSymbol> BuildSystemSymbol() {
   aSystemSymbolTable.push_back( aSystemSymbol );
   aSystemSymbol.symbol_name = "string=?";
   aSystemSymbolTable.push_back( aSystemSymbol );
-  aSystemSymbol.symbol_name = "eqv";
+  aSystemSymbol.symbol_name = "eqv?";
   aSystemSymbol.symbol_type = "Eqivalence tester";
   aSystemSymbolTable.push_back( aSystemSymbol );
-  aSystemSymbol.symbol_name = "equal";
+  aSystemSymbol.symbol_name = "equal?";
   aSystemSymbolTable.push_back( aSystemSymbol );
   aSystemSymbol.symbol_name = "begin";
   aSystemSymbol.symbol_type = "Sequencing";

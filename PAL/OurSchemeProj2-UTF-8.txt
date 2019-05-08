@@ -871,7 +871,7 @@ a defined
 > ( and        ; 'and' either returns the evaluated result of
     (pair? 3)  ; the first one that is evaluated to nil
     a          ; or the evaluated result of the last one
-  )                          
+  )
 nil
 
 > ( and #t a )
@@ -1149,7 +1149,7 @@ ERROR (unbound symbol) : a
 > ;
   ; 11. the binding of a symbol can be a function, which is an atom too
   ;
-  
+
 cons ; the binding of the symbol 'cons' is a function with original name being 'cons'
 #<procedure cons>
 
