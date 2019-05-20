@@ -52,7 +52,7 @@
 
 > #t
 
-> #t
+> #t @@
 
 > nil
 
@@ -91,7 +91,7 @@
 
 > cadr-clone defined
 
-> ( 10
+> ( 10 @@
   20
 )
 
@@ -112,7 +112,7 @@
 
 > FFirst defined
 
-> car
+> car @@
 
 > second defined
 

@@ -56,11 +56,6 @@ struct NoRightParenErrorInfo {
   int column;
 }; // NoRightParenErrorInfo
 
-struct DefineTable {
-  string define_name;
-  TreeNode * define_value;
-}; // DefineTable
-
 struct SaveFunctionParameter {
   string fun_Name;
   string fun_Type;
@@ -92,10 +87,6 @@ struct FormatErrorInfo {
   TreeNode * format_error_node;
 }; // FormatErrorInfo
 
-struct Format_OnlyStringErrorInfo {
-  string fun_name;
-}; // Format_OnlyStringErrorInfo
-
 struct LevelErrorInfo {
   string level_function_name;
 }; // LevelErrorInfo
@@ -113,19 +104,40 @@ struct NoReturnValueErrorInfo {
   TreeNode * no_return_error_node;
 }; // NoReturnValueErrorInfo
 
-struct DefineFunction {
-  string user_fun_name;  // F1、F2。
-  string user_fun_type; // Define or lambda
-  vector<TreeNode*> fun_argument; // F1、a、5。
-  vector<TreeNode*> eva_function; // function。
-}; // DefineFunction
-
 struct UserFunctionInfo {
+  string function_type;
+  int function_pos;
   vector<TreeNode*> real_para;
 }; // UserFunctionInfo
 
+struct DefineTable {
+  string user_define_name;
+  string user_define_type; // "Parameter"、"Define-Function"、"Lambda-Function"。
+  TreeNode * define_value; // "Parameter"存的參數或、"Lambda-Function"存的key node(check for keyvalue)。
+  vector<TreeNode*> fun_argument;
+  vector<TreeNode*> eva_function;
+}; // DefineTable
+
+struct UnboundParameterErrorInfo {
+  TreeNode * unbound_Parameter_node;
+}; // UnboundParameterErrorInfo
+
+struct UnboundTestConditionErrorInfo {
+  TreeNode * unbound_Testcondition_node;
+}; // UnboundTestConditionErrorInfo
+
+struct UnboundConditionErrorInfo {
+  TreeNode * unbound_Condition_node;
+}; // UnboundConditionErrorInfo
+
+struct ProcedureTable {
+  string function_type; // is system or user
+  TreeNode * procedure_node;
+  TreeNode * define_table_value;
+}; // ProcedureTable
+
 vector<DefineTable> gDefineTable;
-vector<DefineFunction> gDefineFunction;
+vector<ProcedureTable> gProcedureTable;
 
 class Scanner {         // 只負責切出GetToken()，跟PeekToken()，並回傳該Token字串。
   private:
@@ -968,14 +980,13 @@ class Tree {
   vector<TreeNode*> mAllFunPara;  // 所有存入的function & parameter，(存左括號連接點)。
   vector<SystemSymbol> mSystemSymbolTable;
   vector<UserFunctionInfo> mUserFunctionInfo;
-  vector<int> mLevel_argument;
   SaveFunctionParameter mSave_Table;
   TreeNode * mStart_ResultSExp;   // 開始的頭，此為結果。
   bool mDoingQuote;          // 該sexp只有quote，計算多餘的第一個quote用。
   int mCurrent_pos;         // 每一次呼叫都增加1，因為要用此來插入mAllFunPara。
   int mLevel_num;
-  int mUser_Function_pos;   // 控制當前所使用到的Function是哪個，進入後搭配mUserFunctionInfo()食用參數。
-  int mUser_FunctionInfo_pos; // 控制當前的mUserFunctionInfo。
+  int mContorl_value;
+
   // KEY:遇到QUOTE就是一個List，不然下一個Is_Start左邊接的就是function。
   TreeNode * EvaluateParameter( TreeNode * inputSExp ) {
     if ( inputSExp ) {
@@ -988,7 +999,6 @@ class Tree {
         mSave_Table.fun_Pos = mCurrent_pos;         // *要做修改(紀錄fun位置)*
         mCurrent_pos++;
         EvaluateParameter( inputSExp -> right );
-        mLevel_argument.push_back( mSave_Table.argument_Num );
         return CheckAllErrors_EVAFunction( mSave_Table );   // 開始做運算(開層開始計算。)
       } // if
       else if ( inputSExp -> isEnd ) {
@@ -1013,17 +1023,24 @@ class Tree {
     int fun_pos = aSaveFunPara.fun_Pos;         // fun位置
     int argu_num = aSaveFunPara.argument_Num;   // argu數目
     TreeNode * fun_node = mAllFunPara[fun_pos] -> left; // 找到此function_node了
+    TreeNode * no_return_node = fun_node;
     if ( fun_node -> isStart ) {        // 如果又遇到左括號，就開始遞迴之旅，拿到我要的function node。
       fun_node = EvaluateParameter( fun_node );
     } // if
 
     // 再來檢查Function，最後檢查Argument Number。
-    Function_Check( fun_node, aSaveFunPara.fun_Name, aSaveFunPara.fun_Type );
-    ArgumentNum_Check( argu_num, aSaveFunPara.fun_Name, aSaveFunPara.fun_Type );
-    return EvaluateFunction( aSaveFunPara );
+    if ( fun_node == NULL ) {
+      NoReturnValueErrorInfo aNoReturnValueErrorInfo;
+      aNoReturnValueErrorInfo.no_return_error_node = no_return_node;
+      throw aNoReturnValueErrorInfo;
+    } // if
+
+    int user_function_pos = Function_Check( fun_node, aSaveFunPara.fun_Name, aSaveFunPara.fun_Type );
+    ArgumentNum_Check( user_function_pos, argu_num, aSaveFunPara.fun_Name, aSaveFunPara.fun_Type );
+    return EvaluateFunction( user_function_pos, aSaveFunPara );
   } // CheckAllErrors_EVAFunction()
 
-  TreeNode * EvaluateFunction( SaveFunctionParameter aSaveFunPara ) {
+  TreeNode * EvaluateFunction( int user_function_pos, SaveFunctionParameter aSaveFunPara ) {
     string fun_name = aSaveFunPara.fun_Name;
     string fun_type = aSaveFunPara.fun_Type;
     if ( fun_type == "Constructors" ) {
@@ -1065,8 +1082,11 @@ class Tree {
       if ( fun_name == "if" ) return EVAif( aSaveFunPara );
       else return EVAcond( aSaveFunPara );
     } // else if
+    else if ( fun_type == "Let" ) {
+      return EVAlet( aSaveFunPara );
+    } // else if
     else if ( fun_type == "User-Defined-Function" ) {
-      return EVAuser_Function( aSaveFunPara );
+      return EVAuser_Function( user_function_pos, aSaveFunPara );
     } // else if
     else if ( fun_type == "Lambda" ) {
       return EVAlambda( aSaveFunPara );
@@ -1077,67 +1097,56 @@ class Tree {
 
   // 參數有四種的可能，1.function 2.quote(變種)參數  3.sybol(變種define)參數 4.一般參數
   // 如果是function會回傳false，開始進入新的function計算。(當前後面的參數暫停計算)。
-  TreeNode * DealParameterType( TreeNode * para_node, string & parameter_type ) {
+  TreeNode * DealParameterType( TreeNode * para_node, string & parameter_type, bool & eva_functoin ) {
     int define_pos = -1; // 先判斷式是不是SYMBOL
     bool isExpect_else = false;
-    bool is_user_fun_global = false;
+    bool is_global = true;
+    string name = "";
+    string type = "";
     if ( para_node -> token_data.token_name == "else" ) isExpect_else = true;
-    // 當前的function是user-define-funcition。
-    if ( mUser_Function_pos != -1 && para_node -> isStart == false ) {
-      DefineFunction aDefineFunction;
-      aDefineFunction = gDefineFunction[mUser_Function_pos];
-      int info_pos = mUser_FunctionInfo_pos;
-      if ( IsUserFunctionParameter( para_node -> token_data, aDefineFunction, define_pos ) ) {
-        TreeNode * real_para_node = mUserFunctionInfo[info_pos].real_para[define_pos];
-        if ( parameter_type == "Define" || parameter_type == "Eq" ) {
-          para_node = real_para_node;
-          if ( parameter_type == "Define" ) parameter_type = "NoCreateMemory";
-          if ( parameter_type == "Eq" ) {
-            string name = para_node -> token_data.token_name;
-            string type = para_node -> token_data.token_type;
-            if ( IsSystemSymbol( name, type ) ) {
-              TreeNode * procedure_node = NULL;
-              procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-              para_node = procedure_node;
-            } // if
-
-          } // if
-
-        } // if
+    // 如果當前的function是user-define-funcition。
+    if ( mUserFunctionInfo.size() > 0 && para_node -> token_data.token_type == "SYMBOL" ) {
+      UserFunctionInfo aUserFunctionInfo;
+      aUserFunctionInfo = mUserFunctionInfo[mUserFunctionInfo.size()-1];
+      DefineTable aDefineTable;
+      aDefineTable = gDefineTable[aUserFunctionInfo.function_pos];
+      int info_pos = -1;
+      if ( IsUserFunctionParameter( para_node -> token_data, aDefineTable, info_pos ) ) {
+        is_global = false;
+        para_node = aUserFunctionInfo.real_para[info_pos];
+        name = para_node -> token_data.token_name;
+        type = para_node -> token_data.token_type;
+        if ( parameter_type == "Define" ) parameter_type = "NoCreateMemory";
         else if ( parameter_type == "Cond-LastElse" && isExpect_else ) {
           return para_node;
         } // else if
         else {
           TreeNode * new_eval_tree = NULL;
-          para_node = Return_NewEval_Tree( real_para_node, new_eval_tree );
-          string name = para_node -> token_data.token_name;
-          string type = para_node -> token_data.token_type;
-          if ( IsSystemSymbol( name, type ) ) {
-            TreeNode * procedure_node = NULL;
-            procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-            para_node = procedure_node;
-          } // if
-
+          para_node = Return_NewEval_Tree( para_node, new_eval_tree );
         } // else
 
+        define_pos = info_pos;
       } // if
       else if ( IsBoundSymbol( para_node -> token_data, define_pos ) ) {
-        is_user_fun_global = true;
+        is_global = true;
       } // else if
       else {
-        string name = para_node -> token_data.token_name;
-        string type = para_node -> token_data.token_type;
-        // cout << para_node -> token_data.tok  en_name << para_node -> token_data.token_type;
+        is_global = false;
+        name = para_node -> token_data.token_name;
+        type = para_node -> token_data.token_type;
         if ( IsSystemSymbol( name, type ) ) {
-          if ( parameter_type != "Define" ) {
-            TreeNode * procedure_node = NULL;
-            procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-            para_node = procedure_node;
+          TreeNode * procedure_node = NULL;
+          int fun_pos = -1;
+          fun_pos = FindName_UserFunctionPos( name );
+          procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
+          if ( fun_pos == -1 && type != "User-Defined-Function" ) {
+            CreateProcedure_Connect_UserFunction( procedure_node, NULL );
           } // if
           else {
-            // cout << para_node -> token_data.token_name << para_node -> token_data.token_type;
+            CreateProcedure_Connect_UserFunction( procedure_node, gDefineTable[fun_pos].define_value );
           } // else
 
+          para_node = procedure_node;
         } // if
         else if ( parameter_type == "Cond-LastElse" ) {
           if ( para_node -> token_data.token_type == "SYMBOL"
@@ -1161,50 +1170,55 @@ class Tree {
 
     } // if
 
-    if ( IsBoundSymbol( para_node -> token_data, define_pos ) || is_user_fun_global ) {
+    if ( IsBoundSymbol( para_node -> token_data, define_pos ) && is_global ) {
+      name = para_node -> token_data.token_name;
+      type = para_node -> token_data.token_type;
       if ( parameter_type == "Define" || parameter_type == "Eq" ) {
         para_node = gDefineTable[define_pos].define_value;
         if ( parameter_type == "Define" ) parameter_type = "NoCreateMemory";
-        if ( parameter_type == "Eq" ) {
-          string name = para_node -> token_data.token_name;
-          string type = para_node -> token_data.token_type;
-          if ( IsSystemSymbol( name, type ) ) {
-            TreeNode * procedure_node = NULL;
-            procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-            para_node = procedure_node;
-          } // if
-
-        } // if
 
       } // if
       else if ( parameter_type == "Cond-LastElse" && isExpect_else ) {
         return para_node;
       } // else if
+      else if ( IsSystemSymbol( name, type ) ) {
+        TreeNode * procedure_node = NULL;
+        int fun_pos = -1;
+        fun_pos = FindName_UserFunctionPos( name );
+        procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
+        if ( fun_pos == -1 && type != "User-Defined-Function" ) {
+          CreateProcedure_Connect_UserFunction( procedure_node, NULL );
+        } // if
+        else {
+          CreateProcedure_Connect_UserFunction( procedure_node, gDefineTable[fun_pos].define_value );
+        } // else
+
+        para_node = procedure_node;
+      } // else if
       else {
         TreeNode * new_eval_tree = NULL;
         para_node = Return_NewEval_Tree( gDefineTable[define_pos].define_value, new_eval_tree );
-        string name = para_node -> token_data.token_name;
-        string type = para_node -> token_data.token_type;
-        if ( IsSystemSymbol( name, type ) ) {
-          TreeNode * procedure_node = NULL;
-          procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-          para_node = procedure_node;
-        } // if
-
+        name = para_node -> token_data.token_name;
+        type = para_node -> token_data.token_type;
       } // else
 
     } // if
-    else {
-      string name = para_node -> token_data.token_name;
-      string type = para_node -> token_data.token_type;
-      // cout << para_node -> token_data.token_name << para_node -> token_data.token_type;
+    else if ( is_global ) {
+      name = para_node -> token_data.token_name;
+      type = para_node -> token_data.token_type;
       if ( IsSystemSymbol( name, type ) ) {
-        if ( parameter_type != "Define" ) {
-          TreeNode * procedure_node = NULL;
-          procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-          para_node = procedure_node;
+        TreeNode * procedure_node = NULL;
+        int fun_pos = -1;
+        fun_pos = FindName_UserFunctionPos( name );
+        procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
+        if ( fun_pos == -1 && type != "User-Defined-Function" ) {
+          CreateProcedure_Connect_UserFunction( procedure_node, NULL );
         } // if
+        else {
+          CreateProcedure_Connect_UserFunction( procedure_node, gDefineTable[fun_pos].define_value );
+        } // else
 
+        para_node = procedure_node;
       } // if
       else if ( parameter_type == "Cond-LastElse" ) {
         if ( para_node -> token_data.token_type == "SYMBOL"
@@ -1224,11 +1238,12 @@ class Tree {
         throw aUnboundSymbolErrorInfo;
       } // else if
 
-    } // else
+    } // else if
 
     //  如果node的參數是開始且是unbound才可以進入新的function運算。
     if ( para_node -> isStart && define_pos == -1 ) {
       para_node = EvaluateParameter( para_node );
+      eva_functoin = true;
     } // if
     // 開始進行參數篩選。
 
@@ -1247,12 +1262,25 @@ class Tree {
     aSaveFunPara.result_Node = ReSetLinkResult( new_string );
     // 直接放左邊，
     int para_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * left_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+    bool eva_fun = false;
+    TreeNode * left_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type, eva_fun );
+    if ( eva_fun && CheckNodeIsNULL( left_node ) ) {
+      UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+      aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para_pos] -> left;
+      throw aUnboundParameterErrorInfo;
+    } // if
+
     aSaveFunPara.result_Node -> left = left_node;
     aSaveFunPara.parameter_Pos.pop();
-
+    eva_fun = false;
     int para2_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * right_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+    TreeNode * right_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type, eva_fun );
+    if ( eva_fun && CheckNodeIsNULL( right_node ) ) {
+      UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+      aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para2_pos] -> left;
+      throw aUnboundParameterErrorInfo;
+    } // if
+
     aSaveFunPara.parameter_Pos.pop();
     if ( right_node -> token_data.token_type != "LEFT-PAREN" ) {
       right_node -> isStart = false;
@@ -1297,10 +1325,17 @@ class Tree {
     aSaveFunPara.result_Node = ReSetLinkResult( new_string );
     TreeNode * cur_node = aSaveFunPara.result_Node;
     TreeNode * link_node;
+    bool eva_fun = false;
     while ( aSaveFunPara.argument_Num > i ) {
       int para_pos = aSaveFunPara.parameter_Pos.front();
-      TreeNode * real_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+      TreeNode * real_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type, eva_fun );
+      if ( eva_fun && CheckNodeIsNULL( real_node ) ) {
+        UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+        aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para_pos] -> left;
+        throw aUnboundParameterErrorInfo;
+      } // if
 
+      eva_fun = false;
       if ( aSaveFunPara.argument_Num == i + 1 ) {
         if ( i == 0 ) {
           cur_node -> left = real_node;
@@ -1359,310 +1394,16 @@ class Tree {
     return aSaveFunPara.result_Node;
   } // EVAquote()
 
-  void EVAdefine_Type1( SaveFunctionParameter aSaveFunPara ) { // define function, parameter。
-    // 先檢查argument_num。
-    bool define_error = false;
-    bool define_lambda = false;
-    bool para1_is_boundsymbol = false, para1_is_boundfunction = false;
-    bool para2_is_boundsymbol = false, para2_is_boundfunction = false;
-    int repeat_para1_pos = -1, repeat_para2_pos = -1; // para1 or(para2) = repeat_pos -1。
-    int i = 0;
-    if ( aSaveFunPara.argument_Num != 2 ) {                         // 先檢查參數數目。
-      Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
-      aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
-      throw aFormat_OnlyStringErrorInfo;
-    } // if
-
-    int para_1_pos = aSaveFunPara.parameter_Pos.front();
-    int para_2_pos = aSaveFunPara.parameter_Pos.back();
-    TreeNode * para_1_node = mAllFunPara[para_1_pos] -> left;
-    TreeNode * para_2_node = NULL;
-    string symbol_name = para_1_node -> token_data.token_name;
-    string symbol_type = para_1_node -> token_data.token_type;
-    string parameter_type = "Define";
-    if ( para_1_node -> token_data.token_type != "SYMBOL" ) {  // 再來檢查是不是系統的function。
-      define_error = true;
-    } // if
-    else {                                                          // 最後檢查其參數之間的關係。
-      while ( gDefineTable.size() > i ) {         // 先檢查有沒有被定義過。
-        if ( gDefineTable[i].define_name == symbol_name ) {
-          repeat_para1_pos = i;
-          para1_is_boundsymbol = true;
-        } // if
-
-        i++;
-      } // while
-
-      i = 0;
-      while ( gDefineFunction.size() > i ) {
-        if ( gDefineFunction[i].user_fun_name == symbol_name ) {
-          repeat_para1_pos = i;
-          para1_is_boundfunction = true;
-        } // if
-
-        i++;
-      } // while
-
-      string change_to_function = "";
-      para_2_node = DealParameterType( mAllFunPara[para_2_pos] -> left, parameter_type ); // 看有沒有被定義過
-      if ( para_2_node -> token_data.token_type == "PROCEDURE" ) {
-        int start = 12;
-        int end = para_2_node -> token_data.token_name.size() - 13;   // 13
-        change_to_function = change_to_function.assign( para_2_node -> token_data.token_name, start, end );
-        if ( change_to_function == "lambda" ) {
-          repeat_para2_pos = FindUserFunctionPos( "" );
-          para2_is_boundfunction = true;
-          define_lambda = true;
-        } // if
-
-      } // if
-      else if ( IsBoundFunction( para_2_node -> token_data, repeat_para2_pos ) ) { // 原本就存在的function。
-        para2_is_boundfunction = true;
-      } // else if
-      else {
-        para2_is_boundsymbol = true;
-      } // else
-
-    } // else
-
-    if ( define_error ) {
-      Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
-      aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
-      throw aFormat_OnlyStringErrorInfo;
-    } // if
-    else {
-      if ( para2_is_boundsymbol ) {
-        TreeNode * new_define_node = NULL;
-        if ( para1_is_boundsymbol ) {
-          if ( parameter_type == "NoCreateMemory" )
-            gDefineTable[repeat_para1_pos].define_value = para_2_node;
-          else {
-            new_define_node = Build_Define_Tree( para_2_node, new_define_node );
-            gDefineTable[repeat_para1_pos].define_value = new_define_node;
-          } // else
-
-        } // if
-        else if ( para1_is_boundfunction ) {  // 移除function，並gDefineTable直接新增。
-          int system_pos = FindSystemSymbol( symbol_name );
-          mSystemSymbolTable.erase( mSystemSymbolTable.begin() + system_pos );
-          gDefineFunction.erase( gDefineFunction.begin() + repeat_para1_pos ); // 移除function。
-          DefineTable aDefineTable;
-          aDefineTable.define_name = symbol_name;
-          if ( parameter_type == "NoCreateMemory" )
-            aDefineTable.define_value = para_2_node;
-          else {
-            new_define_node = Build_Define_Tree( para_2_node, new_define_node );
-            aDefineTable.define_value = new_define_node;
-          } // else
-
-          gDefineTable.push_back( aDefineTable );
-        } // else if
-        else {  // // gDefineTable直接新增。
-          DefineTable aDefineTable;
-          aDefineTable.define_name = symbol_name;
-          if ( parameter_type == "NoCreateMemory" )
-            aDefineTable.define_value = para_2_node;
-          else {
-            new_define_node = Build_Define_Tree( para_2_node, new_define_node );
-            aDefineTable.define_value = new_define_node;
-          } // else
-
-          gDefineTable.push_back( aDefineTable );
-        } // else
-
-
-      } // if
-      else if ( para2_is_boundfunction ) {
-        if ( para1_is_boundsymbol ) {
-          gDefineTable.erase( gDefineTable.begin() + repeat_para1_pos ); // 移除BoundSymbol。
-          DefineFunction aDefineFunction;
-          aDefineFunction = gDefineFunction[repeat_para2_pos];
-          if ( define_lambda ) {
-            gDefineFunction[repeat_para2_pos].user_fun_name = symbol_name;
-          } // if
-          else {
-            aDefineFunction.user_fun_name = symbol_name;
-            gDefineFunction.push_back( aDefineFunction );
-          } // else
-
-          SystemSymbol aSystemSymbol;
-          aSystemSymbol.symbol_name = symbol_name;
-          aSystemSymbol.symbol_type = "User-Defined-Function";
-          mSystemSymbolTable.push_back( aSystemSymbol );
-        } // if
-        else if ( para1_is_boundfunction ) {
-          int system_pos = FindSystemSymbol( symbol_name );
-          mSystemSymbolTable.erase( mSystemSymbolTable.begin() + system_pos );
-          DefineFunction aDefineFunction;
-          aDefineFunction = gDefineFunction[repeat_para2_pos];
-          if ( define_lambda ) {
-            gDefineFunction[repeat_para2_pos].user_fun_name = symbol_name;
-          } // if
-          else {
-            gDefineFunction[repeat_para1_pos] = aDefineFunction;
-            gDefineFunction[repeat_para1_pos].user_fun_name = symbol_name;
-          } // else
-
-          SystemSymbol aSystemSymbol;
-          aSystemSymbol.symbol_name = symbol_name;
-          aSystemSymbol.symbol_type = "User-Defined-Function";
-          mSystemSymbolTable.push_back( aSystemSymbol );
-        } // else if
-        else {
-          DefineFunction aDefineFunction;
-          aDefineFunction = gDefineFunction[repeat_para2_pos];
-          if ( define_lambda ) {
-            gDefineFunction[repeat_para2_pos].user_fun_name = symbol_name;
-          } // if
-          else {
-            aDefineFunction.user_fun_name = symbol_name;
-            gDefineFunction.push_back( aDefineFunction );
-          } // else
-
-          SystemSymbol aSystemSymbol;
-          aSystemSymbol.symbol_name = symbol_name;
-          aSystemSymbol.symbol_type = "User-Defined-Function";
-          mSystemSymbolTable.push_back( aSystemSymbol );
-        } // else
-
-      } // else if
-
-      cout << symbol_name << " defined\n";
-      mPrint_SExp = false;
-    } // else
-
-  } // EVAdefine_Type1()
-
-  void EVAdefine_Type2( SaveFunctionParameter aSaveFunPara ) { // define function。
-    // 先檢查第一個是不是list。
-    if ( aSaveFunPara.argument_Num >= 2 ) {
-      DefineFunction newDefineFunction;
-      newDefineFunction.user_fun_name = "";
-      newDefineFunction.user_fun_type = "DEFINE";
-      int i = 0;
-      TreeNode * para1_node = NULL;
-      string parameter_type = "Parameter";
-      int para1_pos = aSaveFunPara.parameter_Pos.front();
-      para1_node = mAllFunPara[para1_pos] -> left;
-      aSaveFunPara.parameter_Pos.pop();
-      TreeNode * is_Symbol_node = NULL;
-      while ( para1_node -> isEnd == false ) {
-        is_Symbol_node = para1_node -> left;
-        if ( is_Symbol_node -> token_data.token_type == "SYMBOL" ) {
-          if ( i == 0 ) newDefineFunction.user_fun_name = is_Symbol_node -> token_data.token_name;
-          else newDefineFunction.fun_argument.push_back( is_Symbol_node );
-        } // if
-        else {
-          Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
-          aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
-          throw aFormat_OnlyStringErrorInfo;
-        } // else
-
-        i++;
-        para1_node = para1_node -> right;
-      } // while
-
-      i = 1;  //  第二參數之後為function body
-      TreeNode * para_many_node = NULL;
-      while ( aSaveFunPara.argument_Num > i ) {
-        int para_many_pos = aSaveFunPara.parameter_Pos.front();
-        para_many_node = mAllFunPara[para_many_pos] -> left;
-        newDefineFunction.eva_function.push_back( para_many_node );
-        aSaveFunPara.parameter_Pos.pop();
-        parameter_type = "Parameter";
-        i++;
-      } // while
-
-      i = 0;
-      bool para1_is_boundsymbol = false, para1_is_boundfunction = false;
-      int repeat_para1_pos = -1, repeat_para2_pos = -1;
-      string symbol_name = newDefineFunction.user_fun_name;
-      while ( gDefineTable.size() > i ) {         // 先檢查有沒有被定義過。
-        if ( gDefineTable[i].define_name == symbol_name ) {
-          repeat_para1_pos = i;
-          para1_is_boundsymbol = true;
-        } // if
-
-        i++;
-      } // while
-
-      i = 0;
-      while ( gDefineFunction.size() > i ) {
-        if ( gDefineFunction[i].user_fun_name == symbol_name ) {
-          repeat_para1_pos = i;
-          para1_is_boundfunction = true;
-        } // if
-
-        i++;
-      } // while
-
-      if ( para1_is_boundsymbol ) {
-        gDefineTable.erase( gDefineTable.begin() + repeat_para1_pos ); // 移除BoundSymbol。
-        DefineFunction aDefineFunction;
-        aDefineFunction = gDefineFunction[repeat_para2_pos];
-        if ( define_lambda ) {
-          gDefineFunction[repeat_para2_pos].user_fun_name = symbol_name;
-        } // if
-        else {
-          aDefineFunction.user_fun_name = symbol_name;
-          gDefineFunction.push_back( aDefineFunction );
-        } // else
-
-        SystemSymbol aSystemSymbol;
-        aSystemSymbol.symbol_name = symbol_name;
-        aSystemSymbol.symbol_type = "User-Defined-Function";
-        mSystemSymbolTable.push_back( aSystemSymbol );
-      } // if
-      else if ( para1_is_boundfunction ) {
-        int system_pos = FindSystemSymbol( symbol_name );
-        mSystemSymbolTable.erase( mSystemSymbolTable.begin() + system_pos );
-        DefineFunction aDefineFunction;
-        aDefineFunction = gDefineFunction[repeat_para2_pos];
-        if ( define_lambda ) {
-          gDefineFunction[repeat_para2_pos].user_fun_name = symbol_name;
-        } // if
-        else {
-          gDefineFunction[repeat_para1_pos] = aDefineFunction;
-          gDefineFunction[repeat_para1_pos].user_fun_name = symbol_name;
-        } // else
-
-        SystemSymbol aSystemSymbol;
-        aSystemSymbol.symbol_name = symbol_name;
-        aSystemSymbol.symbol_type = "User-Defined-Function";
-        mSystemSymbolTable.push_back( aSystemSymbol );
-      } // else if
-      else {
-        DefineFunction aDefineFunction;
-        aDefineFunction = gDefineFunction[repeat_para2_pos];
-        if ( define_lambda ) {
-          gDefineFunction[repeat_para2_pos].user_fun_name = symbol_name;
-        } // if
-        else {
-          aDefineFunction.user_fun_name = symbol_name;
-          gDefineFunction.push_back( aDefineFunction );
-        } // else
-
-        SystemSymbol aSystemSymbol;
-        aSystemSymbol.symbol_name = symbol_name;
-        aSystemSymbol.symbol_type = "User-Defined-Function";
-        mSystemSymbolTable.push_back( aSystemSymbol );
-      } // else
-
-    } // if
-    else {
-      Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
-      aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
-      throw aFormat_OnlyStringErrorInfo;
-    } // else
-
-    cout << newDefineFunction.user_fun_name << " defined\n";
-    mPrint_SExp = false;
-  } // EVAdefine_Type2()
-
   TreeNode * EVAcar_cdr( SaveFunctionParameter aSaveFunPara ) {
     string parameter_type = "Parameter";
     int para_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * part_access = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+    bool eva_fun = false;
+    TreeNode * part_access = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type, eva_fun );
+    if ( eva_fun && CheckNodeIsNULL( part_access ) ) {
+      UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+      aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para_pos] -> left;
+      throw aUnboundParameterErrorInfo;
+    } // if
 
     // 檢查其part有無錯誤，錯誤就throw incorrect argument type的error。
     if ( part_access -> token_data.token_type != "LEFT-PAREN" ) {
@@ -1720,7 +1461,14 @@ class Tree {
     token_false_data.token_type = "NIL";
     string parameter_type = "Parameter";
     int para_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * real_para = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+    bool eva_fun = false;
+    TreeNode * real_para = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type, eva_fun );
+    if ( eva_fun && CheckNodeIsNULL( real_para ) ) {
+      UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+      aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para_pos] -> left;
+      throw aUnboundParameterErrorInfo;
+    } // if
+
     if ( aSaveFunPara.fun_Name == "atom?" ) {
       if ( IsAtom( real_para -> token_data ) ) true_or_false -> token_data = token_true_data;
       else true_or_false -> token_data = token_false_data;
@@ -1805,7 +1553,14 @@ class Tree {
     float eva1_float = 0, eva2_float = 0;
     bool alwaysInt = true;
     int para1_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * number_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+    bool eva_fun = false;
+    TreeNode * number_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type, eva_fun );
+    if ( eva_fun && CheckNodeIsNULL( number_1_node ) ) {
+      UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+      aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para1_pos] -> left;
+      throw aUnboundParameterErrorInfo;
+    } // if
+
     aSaveFunPara.parameter_Pos.pop();
     i++;
     if ( number_1_node -> token_data.token_type == "INT"
@@ -1828,9 +1583,16 @@ class Tree {
 
     TreeNode * number_2_node = NULL;
     while ( aSaveFunPara.argument_Num > i ) {
+      eva_fun = false;
       parameter_type = "Parameter";
       int para2_pos = aSaveFunPara.parameter_Pos.front();
-      number_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+      number_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type, eva_fun );
+      if ( eva_fun && CheckNodeIsNULL( number_2_node ) ) {
+        UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+        aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para2_pos] -> left;
+        throw aUnboundParameterErrorInfo;
+      } // if
+
       aSaveFunPara.parameter_Pos.pop();
       i++;
       if ( number_2_node -> token_data.token_type == "INT"
@@ -1905,11 +1667,19 @@ class Tree {
     token_false_data.token_type = "NIL";
     int i = 0;
     float eva1_float = 0, eva2_float = 0;
+    bool eva_fun = false;
     string eva1_string = "", eva2_string = "";
     string parameter_type = "Parameter";
     if ( aSaveFunPara.fun_Type == "Number compare" ) {
       int para1_pos = aSaveFunPara.parameter_Pos.front();
-      TreeNode * number_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+      TreeNode * number_1_node = NULL;
+      number_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type, eva_fun );
+      if ( eva_fun && CheckNodeIsNULL( number_1_node ) ) {
+        UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+        aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para1_pos] -> left;
+        throw aUnboundParameterErrorInfo;
+      } // if
+
       aSaveFunPara.parameter_Pos.pop();
       i++;
       if ( number_1_node -> token_data.token_type == "INT"
@@ -1926,9 +1696,16 @@ class Tree {
       bool isUnFinish = true;
       TreeNode * number_2_node = NULL;
       while ( aSaveFunPara.argument_Num > i ) {
+        eva_fun = false;
         parameter_type = "Parameter";
         int para2_pos = aSaveFunPara.parameter_Pos.front();
-        number_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+        number_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type, eva_fun );
+        if ( eva_fun && CheckNodeIsNULL( number_2_node ) ) {
+          UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+          aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para2_pos] -> left;
+          throw aUnboundParameterErrorInfo;
+        } // if
+
         aSaveFunPara.parameter_Pos.pop();
         i++;
         if ( number_2_node -> token_data.token_type == "INT"
@@ -1943,7 +1720,10 @@ class Tree {
         } // else
 
         if ( aSaveFunPara.fun_Name == ">" && isUnFinish ) {
-          if ( eva1_float <= eva2_float ) isUnFinish = false;
+          if ( eva1_float <= eva2_float ) {
+            isUnFinish = false;
+          } // if
+
         } // if
         else if ( aSaveFunPara.fun_Name == ">=" && isUnFinish ) {
           if ( eva1_float < eva2_float ) isUnFinish = false;
@@ -1973,7 +1753,14 @@ class Tree {
     } // if
     else {  // fun_Type = "String compare"
       int para1_pos = aSaveFunPara.parameter_Pos.front();
-      TreeNode * string_1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+      TreeNode * string_1_node = NULL;
+      string_1_node  = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type, eva_fun );
+      if ( eva_fun && CheckNodeIsNULL( string_1_node ) ) {
+        UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+        aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para1_pos] -> left;
+        throw aUnboundParameterErrorInfo;
+      } // if
+
       aSaveFunPara.parameter_Pos.pop();
       i++;
       if ( string_1_node -> token_data.token_type == "STRING" ) {
@@ -1990,8 +1777,15 @@ class Tree {
       TreeNode * string_2_node = NULL;
       while ( aSaveFunPara.argument_Num > i ) {
         parameter_type = "Parameter";
+        eva_fun = false;
         int para2_pos = aSaveFunPara.parameter_Pos.front();
-        string_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+        string_2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type, eva_fun );
+        if ( eva_fun && CheckNodeIsNULL( string_2_node ) ) {
+          UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+          aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para2_pos] -> left;
+          throw aUnboundParameterErrorInfo;
+        } // if
+
         aSaveFunPara.parameter_Pos.pop();
         i++;
         if ( string_2_node -> token_data.token_type == "STRING" ) {
@@ -2062,16 +1856,28 @@ class Tree {
     int i = 0;
     bool alwaysTrue = true;
     bool unfinished = true;
+    bool eva_fun = false;
+    int para_pos = 0;
     string parameter_type = "Parameter";
     while ( aSaveFunPara.argument_Num > i && unfinished ) {
       parameter_type = "Parameter";
-      int para_pos = aSaveFunPara.parameter_Pos.front();
-      para_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+      eva_fun = false;
+      para_pos = aSaveFunPara.parameter_Pos.front();
+      para_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type, eva_fun );
+      if ( eva_fun && CheckNodeIsNULL( para_node ) ) {
+        UnboundConditionErrorInfo aUnboundConditionErrorInfo;
+        aUnboundConditionErrorInfo.unbound_Condition_node = mAllFunPara[para_pos] -> left;
+        throw aUnboundConditionErrorInfo;
+      } // if
+
       aSaveFunPara.parameter_Pos.pop();
       i++;
       if ( para_node -> token_data.token_type == "NIL" ) {
         alwaysTrue = false;
       } // if
+      else {
+        alwaysTrue = true;
+      } // else
 
       if ( aSaveFunPara.fun_Name == "or" ) {
         if ( !alwaysTrue ) {
@@ -2108,6 +1914,12 @@ class Tree {
     } // if
     else {
       aSaveFunPara.result_Node = result_node;
+      if ( eva_fun && CheckNodeIsNULL( aSaveFunPara.result_Node ) ) {
+        UnboundConditionErrorInfo aUnboundConditionErrorInfo;
+        aUnboundConditionErrorInfo.unbound_Condition_node = mAllFunPara[para_pos] -> left;
+        throw aUnboundConditionErrorInfo;
+      } // if
+
     } // else
 
     return aSaveFunPara.result_Node;
@@ -2128,11 +1940,25 @@ class Tree {
     token_false_data.token_type = "NIL";
     string parameter_type_1 = "Eq";
     int para1_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * para1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type_1 );
+    bool eva_fun = false;
+    TreeNode * para1_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type_1, eva_fun );
+    if ( eva_fun && CheckNodeIsNULL( para1_node ) ) {
+      UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+      aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para1_pos] -> left;
+      throw aUnboundParameterErrorInfo;
+    } // if
+
     aSaveFunPara.parameter_Pos.pop();
     string parameter_type_2 = "Eq";
+    eva_fun = false;
     int para2_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * para2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type_2 );
+    TreeNode * para2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type_2, eva_fun );
+    if ( eva_fun && CheckNodeIsNULL( para2_node ) ) {
+      UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+      aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para2_pos] -> left;
+      throw aUnboundParameterErrorInfo;
+    } // if
+
     aSaveFunPara.parameter_Pos.pop();
     if ( aSaveFunPara.fun_Name == "equal?" ) {
       if ( Compare_TwoTree_Data( para1_node, para2_node ) ) {
@@ -2186,36 +2012,43 @@ class Tree {
     TreeNode * result_node = NULL;
     string parameter_type = "Parameter";
     int para1_pos = aSaveFunPara.parameter_Pos.front();
-    TreeNode * left_or_right_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type );
+    bool eva_fun = false;
+    TreeNode * left_or_right_node = NULL;
+    left_or_right_node = DealParameterType( mAllFunPara[para1_pos] -> left, parameter_type, eva_fun );
     aSaveFunPara.parameter_Pos.pop();
     bool isNIL = false;
-    if ( left_or_right_node -> token_data.token_type == "NIL" ) { // true
-      isNIL = true;
+    if ( eva_fun && CheckNodeIsNULL( left_or_right_node ) ) {
+      UnboundTestConditionErrorInfo aUnboundTestConditionErrorInfo;
+      aUnboundTestConditionErrorInfo.unbound_Testcondition_node = mAllFunPara[para1_pos] -> left;
+      throw aUnboundTestConditionErrorInfo;
     } // if
+    else if ( left_or_right_node -> token_data.token_type == "NIL" ) { // true
+      isNIL = true;
+    } // else if
 
     // 確定為第一個參數的型別之後，開始進攻!!
     if ( isNIL ) {
       if ( aSaveFunPara.argument_Num == 2 ) {
-        NoReturnValueErrorInfo aNoReturnValueErrorInfo;
-        aNoReturnValueErrorInfo.no_return_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
-        throw aNoReturnValueErrorInfo;
+        // NoReturnValueErrorInfo aNoReturnValueErrorInfo;
+        // aNoReturnValueErrorInfo.no_return_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+        // throw aNoReturnValueErrorInfo;
+        result_node = NULL;
       } // if
       else {
         // 開始處理第三個參數
         aSaveFunPara.parameter_Pos.pop(); // (跳過第二個參數)
         int para3_pos = aSaveFunPara.parameter_Pos.front();
-        result_node = DealParameterType( mAllFunPara[para3_pos] -> left, parameter_type );
+        result_node = DealParameterType( mAllFunPara[para3_pos] -> left, parameter_type, eva_fun );
         aSaveFunPara.parameter_Pos.pop();
       } // else
 
     } // if
     else {
-    // 開始處理true，進攻啦(跳過第三個參數，)
+      // 開始處理true，進攻啦(跳過第三個參數，)
       int para2_pos = aSaveFunPara.parameter_Pos.front();
-      result_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type );
+      result_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type, eva_fun );
       aSaveFunPara.parameter_Pos.pop();
     } // else
-
 
     aSaveFunPara.result_Node = result_node;
     return aSaveFunPara.result_Node;
@@ -2290,8 +2123,15 @@ class Tree {
       bool thisTrue = false, falseNoRead = false;
       if ( aSaveFunPara.argument_Num == i + 1 ) parameter_type = "Cond-LastElse";
       while ( fake_node -> isEnd == false && !falseNoRead ) {
-        TreeNode * real_one_node = DealParameterType( fake_node -> left, parameter_type );
-        if ( start_eva == 0 ) { // 只有當第一個參數計算的時候，才可以決定此()的走向
+        bool eva_fun = false;
+        TreeNode * real_one_node = DealParameterType( fake_node -> left, parameter_type, eva_fun );
+        if ( start_eva == 0 ) {  // 只有當第一個參數計算的時候，才可以決定此()的走向
+          if ( eva_fun && CheckNodeIsNULL( real_one_node ) ) {
+            UnboundTestConditionErrorInfo aUnboundTestConditionErrorInfo;
+            aUnboundTestConditionErrorInfo.unbound_Testcondition_node = fake_node -> left;
+            throw aUnboundTestConditionErrorInfo;
+          } // if
+
           if ( real_one_node -> token_data.token_type != "NIL" ) { // 如果不是否定的話。
             thisTrue = true;
           } // if
@@ -2324,9 +2164,7 @@ class Tree {
     } // while
 
     if ( result_node == NULL ) {
-      NoReturnValueErrorInfo aNoReturnValueErrorInfo;
-      aNoReturnValueErrorInfo.no_return_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
-      throw aNoReturnValueErrorInfo;
+      aSaveFunPara.result_Node = NULL;
     } // if
     else {
       aSaveFunPara.result_Node = result_node;
@@ -2338,10 +2176,11 @@ class Tree {
   TreeNode * EVAbegin( SaveFunctionParameter aSaveFunPara ) {
     TreeNode * the_last_node = NULL;
     int i = 0;
+    bool eva_fun = false;
     while ( aSaveFunPara.argument_Num > i ) {
       string parameter_type = "Parameter";
       int para_pos = aSaveFunPara.parameter_Pos.front();
-      the_last_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+      the_last_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type, eva_fun );
       aSaveFunPara.parameter_Pos.pop();
       i++;
     } // while
@@ -2350,64 +2189,196 @@ class Tree {
     return aSaveFunPara.result_Node;
   } // EVAbegin()
 
-  TreeNode * EVAuser_Function( SaveFunctionParameter aSaveFunPara ) {
-    mUser_FunctionInfo_pos++; // 找到function info的位置。
-    int cur_function_pos = FindUserFunctionPos( aSaveFunPara.fun_Name );
+  TreeNode * EVAlet( SaveFunctionParameter aSaveFunPara ) {
+    if ( aSaveFunPara.argument_Num >= 2 ) {
+      DefineTable newDefineTable;
+      newDefineTable.user_define_name = "";
+      newDefineTable.user_define_type = "";
+      UserFunctionInfo newUserFunctionInfo;
+      newUserFunctionInfo.function_type = "LET";
+      TreeNode * para1_node = NULL;
+      string parameter_type = "Parameter";
+      int para1_pos = aSaveFunPara.parameter_Pos.front();
+      para1_node = mAllFunPara[para1_pos] -> left;
+      aSaveFunPara.parameter_Pos.pop();
+      bool eva_fun = false;
+      vector<TreeNode*> pair_node;
+      TreeNode * is_Pair_node = NULL;
+      // 繼承前人的意志。
+      int repeat_fun_pos = -1, repeat_info_pos = -1;
+      if ( mUserFunctionInfo.size() > 0 ) {
+        newUserFunctionInfo = mUserFunctionInfo[mUserFunctionInfo.size()-1];
+        int connect_function = mUserFunctionInfo[mUserFunctionInfo.size()-1].function_pos;
+        newDefineTable = gDefineTable[connect_function];
+      } // if
+
+      newUserFunctionInfo.function_type = "LET";
+      newDefineTable.user_define_type = "LET";
+      if ( !IsList( para1_node ) ) {
+        if ( para1_node -> token_data.token_type != "NIL" ) {
+          FormatErrorInfo aFormatErrorInfo;
+          aFormatErrorInfo.format_fun_name = "LET";
+          aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+          throw aFormatErrorInfo;
+        } // if
+
+      } // if
+      else {
+        // 先檢查format對不對，都確定對以後才能進行運算，利用
+        is_Pair_node = NULL;
+        is_Pair_node = para1_node -> left;
+        while ( para1_node -> isEnd == false ) {
+          eva_fun = false;
+          if ( IsPair( is_Pair_node ) ) {
+            if ( is_Pair_node -> left -> token_data.token_type == "SYMBOL"
+                 && ( FindSystemSymbol_2( is_Pair_node -> left -> token_data.token_name ) == -1 )
+                 && is_Pair_node -> right -> token_data.token_type == "LEFT-PAREN"
+                 && is_Pair_node -> right -> right
+                 && is_Pair_node -> right -> right -> token_data.token_type == "NIL" ) {
+              pair_node.push_back( is_Pair_node );
+            } // if
+            else {
+              FormatErrorInfo aFormatErrorInfo;
+              aFormatErrorInfo.format_fun_name = "LET";
+              aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+              throw aFormatErrorInfo;
+            } // else
+
+          } // if
+          else {
+            FormatErrorInfo aFormatErrorInfo;
+            aFormatErrorInfo.format_fun_name = "LET";
+            aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+            throw aFormatErrorInfo;
+          } // else
+
+          para1_node = para1_node -> right;
+          is_Pair_node = para1_node -> left;
+          parameter_type = "Parameter";
+        } // while
+
+      } // else
+
+      // 開始進行運算。
+      int i = 0;
+      while ( pair_node.size() > i ) {
+        is_Pair_node = pair_node[i];
+        int repeat_pos = -1;
+        TreeNode * temp_function = NULL;
+        if ( IsSameSymbol_In_Argument( is_Pair_node -> left -> token_data,
+                                       newDefineTable.fun_argument, repeat_pos ) ) {
+          newDefineTable.fun_argument[repeat_pos] = is_Pair_node -> left;
+          is_Pair_node = is_Pair_node -> right;
+          temp_function = DealParameterType( is_Pair_node -> left,  parameter_type, eva_fun );
+          newUserFunctionInfo.real_para[repeat_pos] = temp_function;
+        } // if
+        else {
+          newDefineTable.fun_argument.push_back( is_Pair_node -> left );
+          is_Pair_node = is_Pair_node -> right;
+          temp_function = DealParameterType( is_Pair_node -> left,  parameter_type, eva_fun );
+          newUserFunctionInfo.real_para.push_back( temp_function );
+        } // else
+
+        if ( eva_fun && CheckNodeIsNULL( temp_function ) ) {
+          NoReturnValueErrorInfo aNoReturnValueErrorInfo;
+          aNoReturnValueErrorInfo.no_return_error_node = is_Pair_node -> left;
+          throw aNoReturnValueErrorInfo;
+        } // if
+
+        i++;
+        eva_fun = false;
+        parameter_type = "Parameter";
+      } // while
+
+      gDefineTable.push_back( newDefineTable );
+      int define_table_pos = gDefineTable.size() - 1;
+      newUserFunctionInfo.function_pos = define_table_pos;
+      mUserFunctionInfo.push_back( newUserFunctionInfo );
+
+      i = 1;
+      while ( aSaveFunPara.argument_Num > i ) {
+        int some_para_pos = aSaveFunPara.parameter_Pos.front();
+        TreeNode * some_node = mAllFunPara[some_para_pos] -> left;
+        aSaveFunPara.result_Node = DealParameterType( some_node, parameter_type, eva_fun );
+        aSaveFunPara.parameter_Pos.pop();
+        parameter_type = "Parameter";
+        i++;
+      } // while
+
+      mUserFunctionInfo.pop_back();
+      gDefineTable.erase( gDefineTable.begin() + define_table_pos );
+    } // if
+    else {
+      FormatErrorInfo aFormatErrorInfo;
+      aFormatErrorInfo.format_fun_name = "LET";
+      aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+      throw aFormatErrorInfo;
+    } // else
+
+    return aSaveFunPara.result_Node;
+  } // EVAlet()
+
+  TreeNode * EVAuser_Function( int user_function_pos, SaveFunctionParameter aSaveFunPara ) {
+    UserFunctionInfo aUserFunctionInfo;
     TreeNode * real_para_node = NULL;
     TreeNode * real_fun_node = NULL;
     int i = 0;
     string parameter_type = "Parameter";
-    UserFunctionInfo aUserFunctionInfo;
-    // 先從要帶入的參數下手(檢查)。
+    bool eva_fun = false;
 
+    // 先從要帶入的參數下手(檢查)。
     while ( aSaveFunPara.argument_Num > i ) {
       int para_pos = aSaveFunPara.parameter_Pos.front();
-      real_para_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type );
+      real_para_node = DealParameterType( mAllFunPara[para_pos] -> left, parameter_type, eva_fun );
       aUserFunctionInfo.real_para.push_back( real_para_node );
       aSaveFunPara.parameter_Pos.pop();
+      if ( eva_fun && CheckNodeIsNULL( real_para_node ) ) {
+        UnboundParameterErrorInfo aUnboundParameterErrorInfo;
+        aUnboundParameterErrorInfo.unbound_Parameter_node = mAllFunPara[para_pos] -> left;
+        throw aUnboundParameterErrorInfo;
+      } // if
+
       parameter_type = "Parameter";
+      eva_fun = false;
       i++;
     } // while
 
     // 現在開始進行function的運算。
-    mUserFunctionInfo.push_back( aUserFunctionInfo ); // push這個function的真正參數進入mUserFunctionInfo中。
-    mUser_Function_pos = cur_function_pos; // 更新當前function位置。
+    aUserFunctionInfo.function_pos = user_function_pos;
+    mUserFunctionInfo.push_back( aUserFunctionInfo );
+
     i = 0;
-    while ( gDefineFunction[cur_function_pos].eva_function.size() > i ) {
-      TreeNode * eva_user_function = gDefineFunction[cur_function_pos].eva_function[i];
+    while ( gDefineTable[user_function_pos].eva_function.size() > i ) {
+      TreeNode * eva_user_function = gDefineTable[user_function_pos].eva_function[i];
       real_fun_node = Return_NewEval_Tree( eva_user_function, real_fun_node );
-      aSaveFunPara.result_Node = DealParameterType( real_fun_node, parameter_type );
+      aSaveFunPara.result_Node = DealParameterType( real_fun_node, parameter_type, eva_fun );
+      parameter_type = "Parameter";
+      eva_fun = false;
       i++;
     } // while
 
-    // 初始化參數，好讓下一個user function能正常運作。
-    mUser_Function_pos = -1; // user_function位置歸零。
-    mUser_FunctionInfo_pos--; // user_function_info的位置-1，因已做完一輪該functiona了。
-    mUserFunctionInfo.pop_back(); // 參數已做完，作廢。
+    mUserFunctionInfo.pop_back();
     return aSaveFunPara.result_Node;
   } // EVAuser_Function()
 
   TreeNode * EVAlambda( SaveFunctionParameter aSaveFunPara ) {
     // 先檢查第一個是不是list。
     if ( aSaveFunPara.argument_Num >= 2 ) {
-      DefineFunction newDefineFunction;
-      newDefineFunction.user_fun_name = "";
-      newDefineFunction.user_fun_type = "LAMBDA";
+      DefineTable newDefineTable;
+      newDefineTable.user_define_name = "";
+      newDefineTable.user_define_type = "Lambda-Function";
       int argument_check = 0;
       TreeNode * para1_node = NULL;
-      string parameter_type = "Parameter";
       int para1_pos = aSaveFunPara.parameter_Pos.front();
       para1_node = mAllFunPara[para1_pos] -> left;
       aSaveFunPara.parameter_Pos.pop();
       if ( !IsList( para1_node ) ) {
         if ( para1_node -> token_data.token_type != "NIL" ) {
-          Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
-          aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
-          throw aFormat_OnlyStringErrorInfo;
+          FormatErrorInfo aFormatErrorInfo;
+          aFormatErrorInfo.format_fun_name = "LAMBDA";
+          aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+          throw aFormatErrorInfo;
         } // if
-        else {
-
-        } // else
 
       } // if
       else {
@@ -2415,13 +2386,14 @@ class Tree {
         while ( para1_node -> isEnd == false ) {
           is_Symbol_node = para1_node -> left;
           if ( is_Symbol_node -> token_data.token_type == "SYMBOL" ) {
-            newDefineFunction.fun_argument.push_back( is_Symbol_node );
+            newDefineTable.fun_argument.push_back( is_Symbol_node );
             argument_check++;
           } // if
           else {
-            Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
-            aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
-            throw aFormat_OnlyStringErrorInfo;
+            FormatErrorInfo aFormatErrorInfo;
+            aFormatErrorInfo.format_fun_name = "LAMBDA";
+            aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+            throw aFormatErrorInfo;
           } // else
 
           para1_node = para1_node -> right;
@@ -2429,39 +2401,303 @@ class Tree {
 
       } // else
 
-      // 檢查lambda expression，最後把Functions body也帶入。
-      if ( mLevel_num > 1 ) {
-        if ( argument_check != mLevel_argument[mLevel_num-2] ) {
-          AgumentNumberErrorInfo aAgumentNumberErrorInfo;
-          aAgumentNumberErrorInfo.fun_name = "lambda expression";
-          throw aAgumentNumberErrorInfo;
-        } // if
-
-      } // if
-
       int i = 1;  //  第二參數之後為function body
       TreeNode * para_many_node = NULL;
-      parameter_type = "Parameter";
       while ( aSaveFunPara.argument_Num > i ) {
         int para_many_pos = aSaveFunPara.parameter_Pos.front();
         para_many_node = mAllFunPara[para_many_pos] -> left;
-        newDefineFunction.eva_function.push_back( para_many_node );
+        newDefineTable.eva_function.push_back( para_many_node );
         aSaveFunPara.parameter_Pos.pop();
-        parameter_type = "Parameter";
         i++;
       } // while
 
       aSaveFunPara.result_Node = CreateProcedureNode( aSaveFunPara.fun_Name );
-      gDefineFunction.push_back( newDefineFunction );
+      newDefineTable.define_value = aSaveFunPara.result_Node;
+      gDefineTable.push_back( newDefineTable );
+      CreateProcedure_Connect_UserFunction( newDefineTable.define_value, newDefineTable.define_value );
     } // if
-    else {
-      Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo;
-      aFormat_OnlyStringErrorInfo.fun_name = aSaveFunPara.fun_Name;
-      throw aFormat_OnlyStringErrorInfo;
+    else {  // aSaveFunPara.argument_Num < 2
+      FormatErrorInfo aFormatErrorInfo;
+      aFormatErrorInfo.format_fun_name = "LAMBDA";
+      aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+      throw aFormatErrorInfo;
     } // else
 
     return aSaveFunPara.result_Node;
   } // EVAlambda()
+
+  void EVAdefine_Type1( SaveFunctionParameter aSaveFunPara ) {
+    DefineTable newDefineTable;
+    newDefineTable.user_define_name = "";
+    newDefineTable.user_define_type = "";
+    newDefineTable.define_value = NULL;
+    string check_system_name = "";
+    string check_system_type = "";
+    int i = 0;
+    if ( aSaveFunPara.argument_Num == 2 ) {
+      TreeNode * para1_node = NULL;
+      int para1_pos = aSaveFunPara.parameter_Pos.front();
+      para1_node = mAllFunPara[para1_pos] -> left;
+      aSaveFunPara.parameter_Pos.pop();
+      check_system_name = para1_node -> token_data.token_name;
+      check_system_type = para1_node -> token_data.token_type;
+      if ( para1_node -> token_data.token_type != "SYMBOL" ) {
+        FormatErrorInfo aFormatErrorInfo;
+        aFormatErrorInfo.format_fun_name = "DEFINE";
+        aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+        throw aFormatErrorInfo;
+      } // if
+      else if ( IsSystemSymbol( check_system_name, check_system_type ) ) {
+        if ( check_system_type != "User-Defined-Function" ) {
+          FormatErrorInfo aFormatErrorInfo;
+          aFormatErrorInfo.format_fun_name = "DEFINE";
+          aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+          throw aFormatErrorInfo;
+        } // if
+
+      } // else if
+
+      newDefineTable.user_define_name = para1_node -> token_data.token_name;
+      int repeat_para1_pos = -1;
+      string repeat_function_type = ""; // 先檢查有沒有被定義過
+      while ( gDefineTable.size() > i ) {
+        if ( gDefineTable[i].user_define_name == newDefineTable.user_define_name ) {
+          repeat_para1_pos = i;
+          if ( gDefineTable[i].user_define_type == "Parameter" ) {
+            repeat_function_type = "Parameter";
+          } // if
+          else if ( gDefineTable[i].user_define_type == "Define-Function" ) {
+            repeat_function_type = "Define-Function";
+          } // else if
+          else if ( gDefineTable[i].user_define_type == "Lambda-Function" ) {
+            repeat_function_type = "Lambda-Function";
+          } // else if
+
+        } // if
+
+        i++;
+      } // while
+
+      TreeNode * para2_node = NULL;
+      int para2_pos = aSaveFunPara.parameter_Pos.front();
+      aSaveFunPara.parameter_Pos.pop();
+      string parameter_type = "Define";
+      bool eva_fun = false;
+      para2_node = DealParameterType( mAllFunPara[para2_pos] -> left, parameter_type, eva_fun );
+      if ( eva_fun && CheckNodeIsNULL( para2_node ) ) {
+        NoReturnValueErrorInfo aNoReturnValueErrorInfo;
+        aNoReturnValueErrorInfo.no_return_error_node = mAllFunPara[para2_pos] -> left;
+        throw aNoReturnValueErrorInfo;
+      } // if
+
+      if ( para2_node -> token_data.token_type == "PROCEDURE" ) {
+        string change_to_function = "";
+        int start = 12;
+        int end = para2_node -> token_data.token_name.size() - 13;   // 13
+        change_to_function = change_to_function.assign( para2_node -> token_data.token_name, start, end );
+        if ( change_to_function == "lambda" ) {
+          int lambda_pos = FindNameless_UserFunctionPos( para2_node );
+          if ( gDefineTable[lambda_pos].user_define_name == "" ) {
+            gDefineTable[lambda_pos].user_define_name = para1_node -> token_data.token_name;
+          } // if
+          else {
+            newDefineTable = gDefineTable[lambda_pos];
+            newDefineTable.user_define_name = para1_node -> token_data.token_name;
+            gDefineTable.push_back( newDefineTable );
+          } // else
+
+          if ( repeat_para1_pos != -1 ) { // 要移除原先的點。
+            gDefineTable.erase( gDefineTable.begin() + repeat_para1_pos );
+          } // if
+
+          InsertUserFunctionToSystem( para1_node -> token_data.token_name );
+        } // if
+        else if ( FindName_UserFunctionPos( change_to_function ) != -1 ) {
+          int define_function_pos = FindName_UserFunctionPos( change_to_function );
+          newDefineTable = gDefineTable[define_function_pos];
+          newDefineTable.user_define_name = para1_node -> token_data.token_name;
+          if ( repeat_para1_pos != -1 ) {
+            gDefineTable[repeat_para1_pos] = newDefineTable;
+          } // if
+          else {
+            gDefineTable.push_back( newDefineTable );
+          } // else
+
+          InsertUserFunctionToSystem( para1_node -> token_data.token_name );
+        } // else if
+        else {
+          newDefineTable.user_define_type = "Parameter";
+          if ( parameter_type == "NoCreateMemory" ) {
+            newDefineTable.define_value = para2_node;
+          } // if
+          else {
+            TreeNode * new_define_node = NULL;
+            new_define_node = Build_Define_Tree( para2_node, new_define_node );
+            newDefineTable.define_value = new_define_node;
+          } // else
+
+        } // else
+
+      } // if
+      else {
+        newDefineTable.user_define_type = "Parameter";
+        if ( parameter_type == "NoCreateMemory" ) {
+          newDefineTable.define_value = para2_node;
+        } // if
+        else {
+          TreeNode * new_define_node = NULL;
+          new_define_node = Build_Define_Tree( para2_node, new_define_node );
+          newDefineTable.define_value = new_define_node;
+        } // else
+
+      } // else
+
+      if ( repeat_para1_pos == -1 ) {
+        if ( newDefineTable.user_define_type == "Parameter" ) {
+          gDefineTable.push_back( newDefineTable );
+        } // if
+
+      } // if
+      else {
+        if ( newDefineTable.user_define_type == "Parameter" ) {
+          gDefineTable[repeat_para1_pos] = newDefineTable;
+          if ( repeat_function_type != "Parameter" ) {
+            int system_pos = FindSystemSymbol( newDefineTable.user_define_name );
+            mSystemSymbolTable.erase( mSystemSymbolTable.begin() + system_pos );
+          } // if
+
+        } // if
+
+      } // else
+
+    } // if
+    else {
+      FormatErrorInfo aFormatErrorInfo;
+      aFormatErrorInfo.format_fun_name = "DEFINE";
+      aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+      throw aFormatErrorInfo;
+    } // else
+
+    cout << newDefineTable.user_define_name << " defined\n";
+    mPrint_SExp = false;
+    mLevel_num = -1;
+  } // EVAdefine_Type1()
+
+  void EVAdefine_Type2( SaveFunctionParameter aSaveFunPara ) {
+    DefineTable newDefineTable;
+    newDefineTable.user_define_name = "";
+    newDefineTable.user_define_type = "";
+    newDefineTable.define_value = NULL;
+    string check_system_name = "";
+    string check_system_type = "";
+    int i = 0;
+    if ( aSaveFunPara.argument_Num >= 2 ) {
+      TreeNode * para1_node = NULL;
+      int para1_pos = aSaveFunPara.parameter_Pos.front();
+      para1_node = mAllFunPara[para1_pos] -> left;
+      aSaveFunPara.parameter_Pos.pop();
+      TreeNode * is_Symbol_node = NULL;
+      while ( para1_node -> isEnd == false ) {
+        is_Symbol_node = para1_node -> left;
+        if ( is_Symbol_node -> token_data.token_type == "SYMBOL" ) {
+          if ( i == 0 ) newDefineTable.user_define_name = is_Symbol_node -> token_data.token_name;
+          else newDefineTable.fun_argument.push_back( is_Symbol_node );
+        } // if
+        else {
+          FormatErrorInfo aFormatErrorInfo;
+          aFormatErrorInfo.format_fun_name = "DEFINE";
+          aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+          throw aFormatErrorInfo;
+        } // else
+
+        i++;
+        para1_node = para1_node -> right;
+      } // while
+
+      check_system_name = newDefineTable.user_define_name;
+      if ( IsSystemSymbol( check_system_name, check_system_type ) ) {
+        if ( check_system_type != "User-Defined-Function" ) {
+          FormatErrorInfo aFormatErrorInfo;
+          aFormatErrorInfo.format_fun_name = "DEFINE";
+          aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+          throw aFormatErrorInfo;
+        } // if
+
+      } // if
+
+      i = 1;  //  第二參數之後為function body
+      TreeNode * para_many_node = NULL;
+      string current_function_type = "";
+      while ( aSaveFunPara.argument_Num > i ) {
+        int para_many_pos = aSaveFunPara.parameter_Pos.front();
+        para_many_node = mAllFunPara[para_many_pos] -> left;
+        current_function_type = FindFunctionType( para_many_node );
+        newDefineTable.eva_function.push_back( para_many_node );
+        aSaveFunPara.parameter_Pos.pop();
+        i++;
+      } // while
+
+      newDefineTable.user_define_type = current_function_type; // 定義function_type。
+      i = 0;
+      int repeat_para1_pos = -1;
+      string repeat_function_type = ""; // 先檢查有沒有被定義過
+      while ( gDefineTable.size() > i ) {
+        if ( gDefineTable[i].user_define_name == newDefineTable.user_define_name ) {
+          repeat_para1_pos = i;
+          if ( gDefineTable[i].user_define_type == "Parameter" ) {
+            repeat_function_type = "Parameter";
+          } // if
+          else if ( gDefineTable[i].user_define_type == "Define-Function" ) {
+            repeat_function_type = "Define-Function";
+          } // else if
+          else if ( gDefineTable[i].user_define_type == "Lambda-Function" ) {
+            repeat_function_type = "Lambda-Function";
+          } // else if
+
+        } // if
+
+        i++;
+      } // while
+
+      newDefineTable.define_value = CreateProcedureNode( newDefineTable.user_define_name );
+      if ( repeat_para1_pos == -1 ) {
+        gDefineTable.push_back( newDefineTable );
+        InsertUserFunctionToSystem( newDefineTable.user_define_name );
+        CreateProcedure_Connect_UserFunction( newDefineTable.define_value, newDefineTable.define_value );
+      } // if
+      else {
+        if ( repeat_function_type == "Parameter" ) {
+          gDefineTable[repeat_para1_pos] = newDefineTable;
+          InsertUserFunctionToSystem( newDefineTable.user_define_name );
+        } // if
+        else {
+          gDefineTable[repeat_para1_pos] = newDefineTable;
+          if ( newDefineTable.user_define_type == "Lambda-Function" ) {
+            gDefineTable[repeat_para1_pos].define_value = CreateProcedureNode( "lambda" );
+            TreeNode * insert = gDefineTable[repeat_para1_pos].define_value;
+            CreateProcedure_Connect_UserFunction( insert, insert );
+          } // if
+          else {
+            gDefineTable[repeat_para1_pos] = newDefineTable;
+            CreateProcedure_Connect_UserFunction( newDefineTable.define_value, newDefineTable.define_value );
+          } // else
+
+        } // else
+
+      } // else
+
+    } // if
+    else {
+      FormatErrorInfo aFormatErrorInfo;
+      aFormatErrorInfo.format_fun_name = "DEFINE";
+      aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+      throw aFormatErrorInfo;
+    } // else
+
+    cout << newDefineTable.user_define_name << " defined\n";
+    mPrint_SExp = false;
+    mLevel_num = -1;
+  } // EVAdefine_Type2()
 
   TreeNode * CreateProcedureNode( string system_name ) {
     TreeNode * procedure_error_name = NULL;
@@ -2470,9 +2706,10 @@ class Tree {
     procedure_error_name -> right = NULL;
     procedure_error_name -> isStart = false;
     procedure_error_name -> isEnd = false;
-    int what_fun_type = FindUserFunctionPos( system_name );
+    int what_fun_type = -1;
+    what_fun_type = FindName_UserFunctionPos( system_name ); // 確認有可能為lambda的形式。
     if ( what_fun_type != -1
-         && gDefineFunction[what_fun_type].user_fun_type == "LAMBDA" ) {
+         && gDefineTable[what_fun_type].user_define_type == "Lambda-Function" ) {
       system_name = "lambda";
     } // if
 
@@ -2481,6 +2718,42 @@ class Tree {
     procedure_error_name -> token_data.token_type = "PROCEDURE";
     return procedure_error_name;
   } // CreateProcedureNode()
+
+  void CreateProcedure_Connect_UserFunction( TreeNode * newprocedure_node, TreeNode * real_value_node ) {
+    // push_back一個新的ProcedureTable
+    ProcedureTable aProcedureTable;
+    aProcedureTable.procedure_node = newprocedure_node;
+    aProcedureTable.define_table_value = real_value_node;
+    if ( real_value_node == NULL ) {
+      aProcedureTable.function_type = "SYSTEM-FUNCTION";
+    } // if
+    else {
+      aProcedureTable.function_type = "USER-FUNCTION";
+    } // else
+
+    gProcedureTable.push_back( aProcedureTable );
+  } // CreateProcedure_Connect_UserFunction()
+
+  int ConnectProcedure_to_UserFunction( TreeNode * procedure_node ) {
+    // 根據Procedure來給訂gDefineTable的位置。
+    int real_pos = -1, find_function_pos = -1;
+    TreeNode * found_function_value = NULL;
+    int i = 0;
+    while ( gProcedureTable.size() > i ) {
+      if ( gProcedureTable[i].procedure_node == procedure_node ) {
+        found_function_value = gProcedureTable[i].define_table_value;
+      } // if
+
+      i++;
+    } // while
+
+    if ( found_function_value == NULL ) {
+      return -1;
+    } // if
+
+    real_pos = FindNameless_UserFunctionPos( found_function_value );
+    return real_pos;
+  } // ConnectProcedure_to_UserFunction()
 
   bool Compare_TwoTree_Data( TreeNode * tree1, TreeNode * tree2 ) {
     if ( tree1 == NULL && tree2 == NULL ) return true;
@@ -2525,7 +2798,7 @@ class Tree {
   } // Return_NewEval_Tree()
 
   // 檢查 -> Level與Argument number
-  void ArgumentNum_Check( int argument_num, string fun_name, string fun_type ) {
+  void ArgumentNum_Check( int user_function_pos, int argument_num, string fun_name, string fun_type ) {
     bool check_get = false;
     if ( fun_name == "cons" ) {
       if ( argument_num == 2 ) check_get = true;
@@ -2594,7 +2867,10 @@ class Tree {
           else {
             vector<DefineTable> newTable;
             gDefineTable = newTable; // 初始化DefineTable。
+            vector<ProcedureTable> anewTable;
+            gProcedureTable = anewTable;
             cout << "environment cleaned" << "\n";
+            mLevel_num = -1;
           } // else
 
         } // if
@@ -2612,16 +2888,18 @@ class Tree {
       } // else
 
     } // else if
+    else if ( fun_type == "Let" ) {
+      check_get = true;
+    } // else if
     else if ( fun_type == "Lambda" ) {
       check_get = true;
     } // else if
     else if ( fun_type == "User-Defined-Function" ) {
-      int fun_pos = FindUserFunctionPos( fun_name );
-      if ( argument_num == gDefineFunction[fun_pos].fun_argument.size() ) {
+      if ( gDefineTable[user_function_pos].fun_argument.size() == argument_num ) {
         check_get = true;
       } // if
       else {
-        if ( gDefineFunction[fun_pos].user_fun_type == "LAMBDA" ) {
+        if ( gDefineTable[user_function_pos].user_define_type == "Lambda-Function" ) {
           fun_name = "lambda";
         } // if
 
@@ -2639,45 +2917,59 @@ class Tree {
   } // ArgumentNum_Check()
 
   // (一)檢查 -> 有無此function  (二) 設定要進入此function的參數
-  void Function_Check( TreeNode * fun_node, string & fun_name, string & fun_type ) {
+  int Function_Check( TreeNode * fun_node, string & fun_name, string & fun_type ) {
     int define_pos = -1;  // 如果symbol有被定義的話，其值會被更改。
-    if ( IsBoundSymbol( fun_node -> token_data, define_pos ) ) {  // 有被定義，不是的話代表是non
-      fun_name = gDefineTable[define_pos].define_value -> token_data.token_name;
-      fun_type = gDefineTable[define_pos].define_value -> token_data.token_type;
-      define_pos = FindUserFunctionPos( fun_name );
-      if ( define_pos != -1 ) { // 是function。
-        fun_name = gDefineFunction[define_pos].user_fun_name;
-        fun_type = "User-Defined-Function";
-      } // else
+    int function_pos = -1;
+    bool is_global = true;
+    bool is_bound = false;
+    if ( mUserFunctionInfo.size() > 0 && fun_node -> token_data.token_type == "SYMBOL" ) {
+      UserFunctionInfo aUserFunctionInfo;
+      aUserFunctionInfo = mUserFunctionInfo[mUserFunctionInfo.size()-1];
+      DefineTable aDefineTable;
+      aDefineTable = gDefineTable[aUserFunctionInfo.function_pos];
+      int info_pos = -1;
+      if ( IsUserFunctionParameter( fun_node -> token_data, aDefineTable, info_pos ) ) {
+        is_global = false;
+        is_bound = true;
+        fun_node = aUserFunctionInfo.real_para[info_pos];
+      } // if
 
     } // if
-    else if ( IsBoundFunction( fun_node -> token_data, define_pos ) ) {
-      fun_name = gDefineFunction[define_pos].user_fun_name;
-      fun_type = "User-Defined-Function";
-    } // else if
-    else {   // 沒被定義但有機會是以下的類型，不是的話1.symbol是unbound，2.不是symbol是nonfunction。
-      fun_name = fun_node -> token_data.token_name;
-      fun_type = fun_node -> token_data.token_type;
-    } // else
 
-    // cout << fun_name << " " << fun_type;
-    if ( IsSystemSymbol( fun_name, fun_type ) ) {
-      // 找到fun_name並設定fun_type，返回。
+    if ( is_global && IsBoundSymbol( fun_node -> token_data, define_pos ) ) {  // 有被定義，不是的話代表是non
+      if ( gDefineTable[define_pos].user_define_type == "Parameter" ) {
+        is_bound = true;
+      } // if
+
+      fun_node = gDefineTable[define_pos].define_value;
+    } // if
+
+    fun_name = fun_node -> token_data.token_name;
+    fun_type = fun_node -> token_data.token_type;
+    if ( fun_type != "PROCEDURE" && IsSystemSymbol( fun_name, fun_type ) ) {
+      if ( is_bound ) {
+        NonFunctionErrorInfo aNonFunctionErrorInfo;
+        aNonFunctionErrorInfo.nonfun_name = gDefineTable[define_pos].define_value;
+        throw aNonFunctionErrorInfo;
+      } // if
+
     } // if
     else {
       if ( fun_type == "PROCEDURE" ) {
-        string change_to_function = "";
-        int start = 12;
-        int end = fun_name.size() - 13;   // 13
-        change_to_function = change_to_function.assign( fun_name, start, end );
-        fun_name = change_to_function;
-        if ( fun_name == "lambda" ) {
-          int fun_pos = FindUserFunctionPos( "" );
-          fun_name = gDefineFunction[fun_pos].user_fun_name;
-          fun_type = "User-Defined-Function";
+        function_pos = ConnectProcedure_to_UserFunction( fun_node );
+        if ( function_pos == -1 ) {
+          string change_to_function = "";
+          int start = 12;
+          int end = fun_name.size() - 13;   // 13
+          change_to_function = change_to_function.assign( fun_name, start, end );
+          fun_name = change_to_function;
+          IsSystemSymbol( fun_name, fun_type );
         } // if
+        else {
+          fun_name = gDefineTable[function_pos].user_define_name;
+          fun_type = "User-Defined-Function";
+        } // else
 
-        else IsSystemSymbol( fun_name, fun_type );
       } // if
       else if ( define_pos == -1 ) {  // 不是定義，如果是symbol就non-bound，如果不是symbol就nonfunction
         if ( fun_node -> token_data.token_type == "SYMBOL" ) {
@@ -2700,6 +2992,7 @@ class Tree {
 
     } // else
 
+    return function_pos;
   } // Function_Check()
 
   // 檢查 -> 結束的node一定要是nil。
@@ -2717,7 +3010,7 @@ class Tree {
     if ( tokendata.token_type == "SYMBOL" ) {
       int i = 0;
       while ( gDefineTable.size() > i ) {
-        if ( gDefineTable[i].define_name == tokendata.token_name ) {
+        if ( gDefineTable[i].user_define_name == tokendata.token_name ) {
           define_pos = i;
           return true;
         } // if
@@ -2729,50 +3022,6 @@ class Tree {
 
     return false;
   } // IsBoundSymbol()
-
-  bool IsBoundFunction( TokenData tokendata, int & define_pos ) {
-    if ( tokendata.token_type == "SYMBOL" ) {
-      int i = 0;
-      while ( gDefineFunction.size() > i ) {
-        if ( gDefineFunction[i].user_fun_name == tokendata.token_name ) {
-          define_pos = i;
-          return true;
-        } // if
-
-        i++;
-      } // while
-
-    } // if
-
-    return false;
-  } // IsBoundFunction()
-
-  bool IsUserFunctionParameter( TokenData tokendata, DefineFunction aDefineFunction, int & para_pos ) {
-    int i = 0;
-    while ( aDefineFunction.fun_argument.size() > i ) {
-      if ( aDefineFunction.fun_argument[i] -> token_data.token_name == tokendata.token_name ) {
-        para_pos = i;
-        return true;
-      } // if
-
-      i++;
-    } // while
-
-    return false;
-  } // IsUserFunctionParameter()
-
-  int FindUserFunctionPos( string function_name ) {
-    int i = 0, define_pos = -1;
-    while ( gDefineFunction.size() > i ) {
-      if ( gDefineFunction[i].user_fun_name == function_name ) {
-        define_pos = i;
-      } // if
-
-      i++;
-    } // while
-
-    return define_pos;
-  } // FindUserFunctionPos()
 
   bool IsAtom( TokenData token_IsAtom ) {
     if ( token_IsAtom.token_type == "PROCEDURE" ) {
@@ -2808,7 +3057,68 @@ class Tree {
       return false;
     } // else
 
+    return false;
   } // IsList()
+
+  bool IsPair( TreeNode * real_para ) {
+    bool is_pair = false;
+    if ( real_para -> token_data.token_type == "LEFT-PAREN" ) {
+      is_pair = true;
+      if ( real_para -> left -> token_data.token_type == "QUOTE" ) {
+        is_pair = false;
+        return is_pair;
+      } // if
+
+      else return is_pair;
+    } // if
+    else {
+      return is_pair;
+    } // else
+
+    return is_pair;
+  } // IsPair()
+
+  int FindName_UserFunctionPos( string function_name ) {
+    int i = 0, define_pos = -1;
+    while ( gDefineTable.size() > i ) {
+      if ( function_name != "" && gDefineTable[i].user_define_name == function_name ) {
+        define_pos = i;
+      } // if
+
+      i++;
+    } // while
+
+    return define_pos;
+  } // FindName_UserFunctionPos()
+
+  int FindNameless_UserFunctionPos( TreeNode * fun_node ) { // 找到同個lambda的位置。
+    int i = 0, define_pos = -1;
+    while ( gDefineTable.size() > i ) {
+      if ( gDefineTable[i].define_value != NULL
+           && gDefineTable[i].define_value == fun_node ) {
+        define_pos = i;
+        return define_pos;
+      } // if
+
+      i++;
+    } // while
+
+    return define_pos;
+  } // FindNameless_UserFunctionPos()
+
+  bool IsUserFunctionParameter( TokenData tokendata, DefineTable aDefineTable, int & para_pos ) {
+    int i = 0;
+    while ( aDefineTable.fun_argument.size() > i ) {
+      if ( aDefineTable.fun_argument[i] -> token_data.token_name == tokendata.token_name ) {
+        para_pos = i;
+        return true;
+      } // if
+
+      i++;
+    } // while
+
+    return false;
+  } // IsUserFunctionParameter()
 
   // 新增連接用(左括號)
   TreeNode * ReSetLinkResult( string new_or_link ) {
@@ -2842,23 +3152,77 @@ class Tree {
     mSave_Table.result_Node = NULL;
   } // ReSetmSave_Table()
 
+  string FindFunctionType( TreeNode * para_node ) {
+    string type_1 = "Define-Function";
+    string type_2 = "Lambda-Function";
+    string eva_string = "";
+    TreeNode * eva_node = para_node;
+    while ( eva_node -> left != NULL ) {
+      eva_node = eva_node -> left;
+    } // while
+
+    int define_pos = -1;
+    if ( IsBoundSymbol( eva_node -> token_data, define_pos ) ) {
+      eva_string = gDefineTable[define_pos].user_define_name;
+    } // if
+    else {
+      eva_string = eva_node -> token_data.token_name;
+    } // else
+
+    if ( eva_string == "lambda" ) {
+      return type_2;
+    } // if
+
+    return type_1;
+  } // FindFunctionType()
+
+  void InsertUserFunctionToSystem( string user_fun_name ) {
+    int i = 0;
+    bool has_repeat = false;
+    while ( mSystemSymbolTable.size() > i ) {
+      if ( mSystemSymbolTable[i].symbol_name == user_fun_name ) {
+        has_repeat = true;
+      } // if
+
+      i++;
+    } // while
+
+    if ( !has_repeat ) {
+      SystemSymbol aSystemSymbol;
+      aSystemSymbol.symbol_name = user_fun_name;
+      aSystemSymbol.symbol_type = "User-Defined-Function";
+      mSystemSymbolTable.push_back( aSystemSymbol );
+    } // if
+
+  } // InsertUserFunctionToSystem()
+
+  bool IsSameSymbol_In_Argument( TokenData tokendata, vector<TreeNode*> fun_argument, int & repeat_pos ) {
+    int i = 0;
+    while ( fun_argument.size() > i ) {
+      if ( fun_argument[i] -> token_data.token_name == tokendata.token_name ) {
+        repeat_pos = i;
+        return true;
+      } // if
+
+      i++;
+    } // while
+
+    return false;
+  } // IsSameSymbol_In_Argument()
+
   public:
   bool mPrint_SExp;
   Tree( vector<SystemSymbol> aSystemSymbolTable ) {
     mDoingQuote = false;
-    mUser_Function_pos = -1;
-    mUser_FunctionInfo_pos = -1;
     mCurrent_pos = 0;
     mStart_ResultSExp = NULL;
     mLevel_num = 0;
     mPrint_SExp = true;
     vector<TreeNode*> aAllFunPara;
     vector<UserFunctionInfo> aUserFunctionInfo;
-    vector<int> aLevel_argument;
     mAllFunPara = aAllFunPara;
     mUserFunctionInfo = aUserFunctionInfo;
     mSystemSymbolTable = aSystemSymbolTable;
-    mLevel_argument = aLevel_argument;
     ReSetmSave_Table();
   } // Tree()
 
@@ -2889,17 +3253,19 @@ class Tree {
     return define_pos;
   } // FindSystemSymbol()
 
-  void RemoveBlankFunction() {
-    int i = 0;
-    while ( gDefineFunction.size() > i ) {
-      if ( gDefineFunction[i].user_fun_name == "" ) {
-        gDefineFunction.erase( gDefineFunction.begin() + i );
+  int FindSystemSymbol_2( string name ) {
+    int i = 0, define_pos = -1;
+    while ( mSystemSymbolTable.size() > i ) {
+      if ( mSystemSymbolTable[i].symbol_name == name
+           && mSystemSymbolTable[i].symbol_type != "User-Defined-Function" ) {
+        define_pos = i;
       } // if
 
       i++;
     } // while
 
-  } // RemoveBlankFunction()
+    return define_pos;
+  } // FindSystemSymbol_2()
 
   // 印成list-like formate
   void PrintSExp( TreeNode * aTreeRoot, string & printed, bool & firstsexp ) {
@@ -2980,6 +3346,14 @@ class Tree {
     } // if
   } // Preorder()
 
+  bool CheckNodeIsNULL( TreeNode * check_null ) {
+    if ( check_null == NULL ) {
+      return true;
+    } // if
+
+    return false;
+  } // CheckNodeIsNULL()
+
   // catch Error跟進入運算，並返回運算完的reusltSExp給main()
   TreeNode * EvaluateSExp( TreeNode * inputSExp, bool & finished, vector<SystemSymbol> & new_one ) {
     try {
@@ -2988,17 +3362,7 @@ class Tree {
         if ( IsBoundSymbol( inputSExp -> token_data, define_pos ) ) {   // 先判斷式是不是SYMBOL
           TreeNode * new_eval_tree = NULL;
           new_eval_tree = Return_NewEval_Tree( gDefineTable[define_pos].define_value, new_eval_tree );
-          string name = new_eval_tree -> token_data.token_name;
-          string type = new_eval_tree -> token_data.token_type;
-          if ( IsSystemSymbol( name, type ) ) {
-            TreeNode * procedure_node = NULL;
-            procedure_node = CreateProcedureNode( new_eval_tree -> token_data.token_name );
-            mStart_ResultSExp = procedure_node;
-          } // if
-          else {
-            mStart_ResultSExp = new_eval_tree;
-          } // else
-
+          mStart_ResultSExp = new_eval_tree;
         } // if
         else {
           if ( inputSExp -> token_data.token_type == "SYMBOL" ) {
@@ -3024,7 +3388,12 @@ class Tree {
       else {
         mStart_ResultSExp = EvaluateParameter( inputSExp );  // 先計算參數，再計算function。
         new_one = mSystemSymbolTable;
-        RemoveBlankFunction();
+        if ( mLevel_num != -1 && CheckNodeIsNULL( mStart_ResultSExp ) ) {
+          NoReturnValueErrorInfo aNoReturnValueErrorInfo;
+          aNoReturnValueErrorInfo.no_return_error_node = inputSExp;
+          throw aNoReturnValueErrorInfo;
+        } // if
+
       } // else
 
     } // try
@@ -3068,9 +3437,17 @@ class Tree {
       finished = aFinished.exit;
       mPrint_SExp = false;
     } // catch
-    catch( Format_OnlyStringErrorInfo aFormat_OnlyStringErrorInfo ) {
-      cout << "ERROR (" << aFormat_OnlyStringErrorInfo.fun_name << " format)\n";
-      mPrint_SExp = false;
+    catch( UnboundParameterErrorInfo aUnboundParameterErrorInfo ) {
+      cout << "ERROR (unbound parameter) : ";
+      mStart_ResultSExp = aUnboundParameterErrorInfo.unbound_Parameter_node;
+    } // catch
+    catch ( UnboundConditionErrorInfo aUnboundConditionErrorInfo ) {
+      cout << "ERROR (unbound condition) : ";
+      mStart_ResultSExp = aUnboundConditionErrorInfo.unbound_Condition_node;
+    } // catch
+    catch ( UnboundTestConditionErrorInfo aUnboundTestConditionErrorInfo ) {
+      cout << "ERROR (unbound test-condition) : ";
+      mStart_ResultSExp = aUnboundTestConditionErrorInfo.unbound_Testcondition_node;
     } // catch
 
     return mStart_ResultSExp;
@@ -3174,11 +3551,27 @@ vector<SystemSymbol> BuildSystemSymbol() {
   aSystemSymbolTable.push_back( aSystemSymbol );
   aSystemSymbol.symbol_name = "clean-environment";
   aSystemSymbolTable.push_back( aSystemSymbol );
+  aSystemSymbol.symbol_name = "let";
+  aSystemSymbol.symbol_type = "Let";
+  aSystemSymbolTable.push_back( aSystemSymbol );
   aSystemSymbol.symbol_name = "lambda";
   aSystemSymbol.symbol_type = "Lambda";
   aSystemSymbolTable.push_back( aSystemSymbol );
   return aSystemSymbolTable;
 } // BuildSystemSymbol()
+
+void Remove_LET_Element() {
+  int i = 0;
+  while ( gDefineTable.size() > i ) {
+    if ( gDefineTable[i].user_define_type == "LET" ) {
+      gDefineTable.erase( gDefineTable.begin() + i );
+      i--;
+    } // if
+
+    i++;
+  } // while
+
+} // Remove_LET_Element()
 
 // Scanner與Parser互相溝通的function，等Paser處理完並無錯之後就開始建Tree。
 TreeNode * ReadSExp( TreeNode * aTreeRoot, int & lastspace, bool & finished_exit  ) {
@@ -3257,7 +3650,7 @@ int main() {
     } // catch
     catch( StringErrorInfo aStringErrorInfo ) {   // error2: scanner處理string的時候，有可能no closing quote
       cout << "ERROR (no closing quote) : END-OF-LINE encountered at Line "
-           << aStringErrorInfo.line << " Column " << aStringErrorInfo.column << "\n";
+           << aStringErrorInfo.line << " Column " << aStringErrorInfo.column + 1 << "\n";
       lastspace = 0;
     } // catch
     catch( NoAtomQuoteErrorInfo aNoAtomQuoteErrorInfo ) {
@@ -3273,6 +3666,7 @@ int main() {
       lastspace = 0;
     } // catch
 
+    Remove_LET_Element();
     if ( !finished ) {
       cout << "\n";
       cout << "> ";
@@ -3283,3 +3677,4 @@ int main() {
   cout << "\n";
   cout << "Thanks for using OurScheme!";
 } // main()
+

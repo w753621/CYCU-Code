@@ -6,6 +6,7 @@
 #include <vector>
 using namespace std;
 
+int g = 1;
 struct TokenData {                                            // token¦r¦ê¡BtokenªºÃþ§O¡C
   int token_line;
   int token_column;
@@ -42,9 +43,9 @@ void test() {
 
 int main() {
   fstream inputfile;
-  string a = "az";
-  string b = "aw";
-  if ( a > b ) cout << "ff";
+  int a = g;
+  a = -1;
+  cout << a << g;
 
 } // main()
 
