@@ -130,14 +130,7 @@ struct UnboundConditionErrorInfo {
   TreeNode * unbound_Condition_node;
 }; // UnboundConditionErrorInfo
 
-struct ProcedureTable {
-  string function_type; // is system or user
-  TreeNode * procedure_node;
-  TreeNode * define_table_value;
-}; // ProcedureTable
-
 vector<DefineTable> gDefineTable;
-vector<ProcedureTable> gProcedureTable;
 
 class Scanner {         // 只負責切出GetToken()，跟PeekToken()，並回傳該Token字串。
   private:
@@ -1139,13 +1132,6 @@ class Tree {
           int fun_pos = -1;
           fun_pos = FindName_UserFunctionPos( name );
           procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-          if ( fun_pos == -1 && type != "User-Defined-Function" ) {
-            CreateProcedure_Connect_UserFunction( procedure_node, NULL );
-          } // if
-          else {
-            CreateProcedure_Connect_UserFunction( procedure_node, gDefineTable[fun_pos].define_value );
-          } // else
-
           para_node = procedure_node;
         } // if
         else if ( parameter_type == "Cond-LastElse" ) {
@@ -1186,13 +1172,6 @@ class Tree {
         int fun_pos = -1;
         fun_pos = FindName_UserFunctionPos( name );
         procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-        if ( fun_pos == -1 && type != "User-Defined-Function" ) {
-          CreateProcedure_Connect_UserFunction( procedure_node, NULL );
-        } // if
-        else {
-          CreateProcedure_Connect_UserFunction( procedure_node, gDefineTable[fun_pos].define_value );
-        } // else
-
         para_node = procedure_node;
       } // else if
       else {
@@ -1211,13 +1190,6 @@ class Tree {
         int fun_pos = -1;
         fun_pos = FindName_UserFunctionPos( name );
         procedure_node = CreateProcedureNode( para_node -> token_data.token_name );
-        if ( fun_pos == -1 && type != "User-Defined-Function" ) {
-          CreateProcedure_Connect_UserFunction( procedure_node, NULL );
-        } // if
-        else {
-          CreateProcedure_Connect_UserFunction( procedure_node, gDefineTable[fun_pos].define_value );
-        } // else
-
         para_node = procedure_node;
       } // if
       else if ( parameter_type == "Cond-LastElse" ) {
@@ -2231,7 +2203,7 @@ class Tree {
           eva_fun = false;
           if ( IsPair( is_Pair_node ) ) {
             if ( is_Pair_node -> left -> token_data.token_type == "SYMBOL"
-                 && ( FindSystemSymbol_2( is_Pair_node -> left -> token_data.token_name ) == -1 )
+                 && !Is_SystemSymbol( is_Pair_node -> left -> token_data.token_name )
                  && is_Pair_node -> right -> token_data.token_type == "LEFT-PAREN"
                  && is_Pair_node -> right -> right
                  && is_Pair_node -> right -> right -> token_data.token_type == "NIL" ) {
@@ -2414,7 +2386,6 @@ class Tree {
       aSaveFunPara.result_Node = CreateProcedureNode( aSaveFunPara.fun_Name );
       newDefineTable.define_value = aSaveFunPara.result_Node;
       gDefineTable.push_back( newDefineTable );
-      CreateProcedure_Connect_UserFunction( newDefineTable.define_value, newDefineTable.define_value );
     } // if
     else {  // aSaveFunPara.argument_Num < 2
       FormatErrorInfo aFormatErrorInfo;
@@ -2447,14 +2418,11 @@ class Tree {
         aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
         throw aFormatErrorInfo;
       } // if
-      else if ( IsSystemSymbol( check_system_name, check_system_type ) ) {
-        if ( check_system_type != "User-Defined-Function" ) {
-          FormatErrorInfo aFormatErrorInfo;
-          aFormatErrorInfo.format_fun_name = "DEFINE";
-          aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
-          throw aFormatErrorInfo;
-        } // if
-
+      else if ( Is_SystemSymbol( check_system_name ) ) {
+        FormatErrorInfo aFormatErrorInfo;
+        aFormatErrorInfo.format_fun_name = "DEFINE";
+        aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+        throw aFormatErrorInfo;
       } // else if
 
       newDefineTable.user_define_name = para1_node -> token_data.token_name;
@@ -2600,8 +2568,22 @@ class Tree {
       while ( para1_node -> isEnd == false ) {
         is_Symbol_node = para1_node -> left;
         if ( is_Symbol_node -> token_data.token_type == "SYMBOL" ) {
-          if ( i == 0 ) newDefineTable.user_define_name = is_Symbol_node -> token_data.token_name;
-          else newDefineTable.fun_argument.push_back( is_Symbol_node );
+          if ( i == 0 ) {
+            if ( Is_SystemSymbol( is_Symbol_node -> token_data.token_name ) ) {
+              FormatErrorInfo aFormatErrorInfo;
+              aFormatErrorInfo.format_fun_name = "DEFINE";
+              aFormatErrorInfo.format_error_node = mAllFunPara[aSaveFunPara.fun_Pos];
+              throw aFormatErrorInfo;
+            } // if
+            else {
+              newDefineTable.user_define_name = is_Symbol_node -> token_data.token_name;
+            } // else
+
+          } // if
+          else {
+            newDefineTable.fun_argument.push_back( is_Symbol_node );
+          } // else
+
         } // if
         else {
           FormatErrorInfo aFormatErrorInfo;
@@ -2663,7 +2645,6 @@ class Tree {
       if ( repeat_para1_pos == -1 ) {
         gDefineTable.push_back( newDefineTable );
         InsertUserFunctionToSystem( newDefineTable.user_define_name );
-        CreateProcedure_Connect_UserFunction( newDefineTable.define_value, newDefineTable.define_value );
       } // if
       else {
         if ( repeat_function_type == "Parameter" ) {
@@ -2675,11 +2656,9 @@ class Tree {
           if ( newDefineTable.user_define_type == "Lambda-Function" ) {
             gDefineTable[repeat_para1_pos].define_value = CreateProcedureNode( "lambda" );
             TreeNode * insert = gDefineTable[repeat_para1_pos].define_value;
-            CreateProcedure_Connect_UserFunction( insert, insert );
           } // if
           else {
             gDefineTable[repeat_para1_pos] = newDefineTable;
-            CreateProcedure_Connect_UserFunction( newDefineTable.define_value, newDefineTable.define_value );
           } // else
 
         } // else
@@ -2718,42 +2697,6 @@ class Tree {
     procedure_error_name -> token_data.token_type = "PROCEDURE";
     return procedure_error_name;
   } // CreateProcedureNode()
-
-  void CreateProcedure_Connect_UserFunction( TreeNode * newprocedure_node, TreeNode * real_value_node ) {
-    // push_back一個新的ProcedureTable
-    ProcedureTable aProcedureTable;
-    aProcedureTable.procedure_node = newprocedure_node;
-    aProcedureTable.define_table_value = real_value_node;
-    if ( real_value_node == NULL ) {
-      aProcedureTable.function_type = "SYSTEM-FUNCTION";
-    } // if
-    else {
-      aProcedureTable.function_type = "USER-FUNCTION";
-    } // else
-
-    gProcedureTable.push_back( aProcedureTable );
-  } // CreateProcedure_Connect_UserFunction()
-
-  int ConnectProcedure_to_UserFunction( TreeNode * procedure_node ) {
-    // 根據Procedure來給訂gDefineTable的位置。
-    int real_pos = -1, find_function_pos = -1;
-    TreeNode * found_function_value = NULL;
-    int i = 0;
-    while ( gProcedureTable.size() > i ) {
-      if ( gProcedureTable[i].procedure_node == procedure_node ) {
-        found_function_value = gProcedureTable[i].define_table_value;
-      } // if
-
-      i++;
-    } // while
-
-    if ( found_function_value == NULL ) {
-      return -1;
-    } // if
-
-    real_pos = FindNameless_UserFunctionPos( found_function_value );
-    return real_pos;
-  } // ConnectProcedure_to_UserFunction()
 
   bool Compare_TwoTree_Data( TreeNode * tree1, TreeNode * tree2 ) {
     if ( tree1 == NULL && tree2 == NULL ) return true;
@@ -3083,6 +3026,7 @@ class Tree {
     while ( gDefineTable.size() > i ) {
       if ( function_name != "" && gDefineTable[i].user_define_name == function_name ) {
         define_pos = i;
+        return define_pos;
       } // if
 
       i++;
@@ -3095,6 +3039,7 @@ class Tree {
     int i = 0, define_pos = -1;
     while ( gDefineTable.size() > i ) {
       if ( gDefineTable[i].define_value != NULL
+           && fun_node != NULL
            && gDefineTable[i].define_value == fun_node ) {
         define_pos = i;
         return define_pos;
@@ -3253,19 +3198,19 @@ class Tree {
     return define_pos;
   } // FindSystemSymbol()
 
-  int FindSystemSymbol_2( string name ) {
+  bool Is_SystemSymbol( string name ) {
     int i = 0, define_pos = -1;
     while ( mSystemSymbolTable.size() > i ) {
       if ( mSystemSymbolTable[i].symbol_name == name
            && mSystemSymbolTable[i].symbol_type != "User-Defined-Function" ) {
-        define_pos = i;
+        return true;
       } // if
 
       i++;
     } // while
 
-    return define_pos;
-  } // FindSystemSymbol_2()
+    return false;
+  } // Is_SystemSymbol()
 
   // 印成list-like formate
   void PrintSExp( TreeNode * aTreeRoot, string & printed, bool & firstsexp ) {
@@ -3300,9 +3245,11 @@ class Tree {
           cout << "." << "\n";
           cout << printed;
           if ( aTreeRoot -> token_data.token_type == "FLOAT" ) {
-            float pointnumber;
-            pointnumber = atof( aTreeRoot -> token_data.token_name.c_str() );
-            cout << fixed << setprecision( 3 ) << pointnumber << "\n";
+            stringstream ss;
+            ss << aTreeRoot -> token_data.token_name;
+            double good = 0;
+            ss >> good;
+            printf( "%.3f\n", good );
           } // if
           else {
             cout << aTreeRoot -> token_data.token_name << "\n";
@@ -3323,9 +3270,11 @@ class Tree {
         } // else
 
         if ( aTreeRoot -> token_data.token_type == "FLOAT" ) {
-          float pointnumber;
-          pointnumber = atof( aTreeRoot -> token_data.token_name.c_str() );
-          cout << fixed << setprecision( 3 ) << pointnumber << "\n";
+          stringstream ss;
+          ss << aTreeRoot -> token_data.token_name;
+          double good = 0;
+          ss >> good;
+          printf( "%.3f\n", good );
         } // if
         else {
           cout << aTreeRoot -> token_data.token_name << "\n";

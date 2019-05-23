@@ -42,11 +42,13 @@ void test() {
 } // test()
 
 int main() {
-  fstream inputfile;
-  int a = g;
-  a = -1;
-  cout << a << g;
-
+  int * a = NULL;
+  a = new int;
+  *a = 7;
+  a = new int;
+  *a = 5;
+  cout << *a << "\n";
+  cout << "nnnb";
 } // main()
 
 
