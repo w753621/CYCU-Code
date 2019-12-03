@@ -6,6 +6,7 @@
 using namespace std;
 static int utestNum = -1;
 
+
 void Rand( int max, int min, int n, int (&random_int)[9] ) {
   srand(time(NULL));
   for(int i = 0; i < n; i++) {
