@@ -15,6 +15,8 @@ void Rand( int max, int min, int n, int (&random_int)[9] ) {
 
 } // Rand()
 
+
+
 void BuildHeap( int random_int[] ) {
 
   cout << "BuildHeap:\n";
@@ -41,6 +43,7 @@ void SelectionSort( int random_int[] ) {
 
 
 
+
 void QuickSort( int random_int[] ) {
 
   cout << "QuickSort:\n";
@@ -48,6 +51,9 @@ void QuickSort( int random_int[] ) {
     cout << random_int[i] << "\n";
   } // for()  
 } // QuickSort()
+
+
+
 
 
 
